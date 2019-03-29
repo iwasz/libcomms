@@ -288,7 +288,7 @@ Mc60Modem::Mc60Modem (Usart &u, Gpio &pwrKey, Gpio &status, Callback *c)
 
         // Wyłącz ECHO podczas wysyłania danych.
         m->state (NETWORK_GPS_USART_ECHO_OFF)->entry (at ("AT+QISDE=0\r\n"))
-                ->transition (NETWORK_BEGIN_RECEIVE)->when (/*anded (&configurationWasRead,*/ anded<BinaryEvent> (beginsWith<BinaryEvent> ("AT+QISDE=0"), &ok));
+                ->transition (/*NETWORK_BEGIN_RECEIVE*/NETWORK_BEGIN_SEND)->when (/*anded (&configurationWasRead,*/ anded<BinaryEvent> (beginsWith<BinaryEvent> ("AT+QISDE=0"), &ok));
 
         static ParseRecvLengthCondition <int, BinaryEvent> parseRecvLenCondition (&bytesReceived);
 
@@ -321,7 +321,7 @@ Mc60Modem::Mc60Modem (Usart &u, Gpio &pwrKey, Gpio &status, Callback *c)
          */
         m->state (NETWORK_BEGIN_SEND)->exit (&delay)
                 ->transition (CLOSE_AND_RECONNECT)->when (&disconnected)
-                ->transition (NETWORK_BEGIN_RECEIVE)->whenf ([this] (BinaryEvent const &) { return dataToSendBuffer.size() == 0 ; })
+                ->transition (/*NETWORK_BEGIN_RECEIVE*/NETWORK_BEGIN_SEND)->whenf ([this] (BinaryEvent const &) { return dataToSendBuffer.size() == 0 ; })
                 ->transition (NETWORK_QUERY_MODEM_OUTPUT_BUFFER_MAX_LEN)->when (&alwaysTrue);
 
         /*
