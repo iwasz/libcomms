@@ -6,7 +6,7 @@
  *  ~~~~~~~~~                                                               *
  ****************************************************************************/
 
-#include "Bg96Modem.h"
+#include "Mc60Modem.h"
 #include "QueryAckAction.h"
 #include "QueryRecvAction.h"
 #include "SendNetworkAction.h"
@@ -29,21 +29,25 @@ enum MachineState : size_t {
         INIT,
         PIN_STATUS_CHECK,
         ENTER_PIN,
+        GET_SIM_IMSI,
         SIGNAL_QUALITY_CHECK,
-        NETWORK_REGISTRATION_CHECK,
-        GPRS_ATTACH,
-        PDP_CONTEXT_CHECK,
-        ACTIVATE_PDP_CONTEXT, // 10
+        REGISTRATION_CHECK,
+        GPRS_ATTACH_CHECK,
+        SET_CONTEXT,
+        MULTIPLE_CONNECTIONS_OFF,
+        SET_MODEM_MODE,
         APN_USER_PASSWD_INPUT,
         GPRS_CONNECTION_UP,
         DNS_CONFIG,
+        USE_DNS,
+        SET_RECEIVE_MODE,
         CONNECT_TO_SERVER,
         CLOSE_AND_RECONNECT,
         CHECK_CONNECTION,
         SHUT_DOWN_STAGE_START,
         SHUT_DOWN_STAGE_POWER_OFF,
         SHUT_DOWN,
-        GPRS_RESET, // 20
+        GPRS_RESET,
         CANCEL_SEND,
         GPS_USART_ECHO_ON,
         NETWORK_SEND,
@@ -53,10 +57,9 @@ enum MachineState : size_t {
         NETWORK_PREPARE_SEND,
         NETWORK_QUERY_MODEM_OUTPUT_BUFFER_MAX_LEN,
         NETWORK_GPS_USART_ECHO_OFF,
-        NETWORK_DECLARE_READ, // 30
+        NETWORK_DECLARE_READ,
         NETWORK_ACK_CHECK,
         NETWORK_ACK_CHECK_PARSE,
-        GNSS_SET_PORT,
         GNSS_TURN_ON,
         GNSS_STATE_CHECK,
         CONTROL_WAIT_FOR_CONNECT
@@ -78,7 +81,7 @@ Mc60Modem::Mc60Modem (Usart &u, Gpio &pwrKey, Gpio &status, Callback *c)
         static DelayAction<BinaryEvent> delay (100);
         static DelayAction<BinaryEvent> longDelay (1000);
         static LikeCondition<BinaryEvent> error ("%ERROR%");
-        auto gsmPwrCycle = and_action<BinaryEvent> (and_action<BinaryEvent> (new PwrKeyAction (false, pwrKeyPin), delayMs<BinaryEvent> (800)),
+        auto gsmPwrCycle = and_action<BinaryEvent> (and_action<BinaryEvent> (new PwrKeyAction (false, pwrKeyPin), delayMs<BinaryEvent> (1200)),
                                                     new PwrKeyAction (true, pwrKeyPin));
         static StatusPinCondition statusLow (false, statusPin);
         static StatusPinCondition statusHigh (true, statusPin);
@@ -101,9 +104,9 @@ Mc60Modem::Mc60Modem (Usart &u, Gpio &pwrKey, Gpio &status, Callback *c)
 
         m->transition (GPRS_RESET)->when (&softResetDelay);
         m->state (RESET_STAGE_DECIDE, StateFlags::INITIAL)->entry (/*and_action (&gpsReset,*/ and_action (&deinitgsmUsart, &delay))
-//                        ->transition (PIN_STATUS_CHECK)->when (beginsWith ("RDY")) // To oznacza, że wcześniej nie było zasilania, czyli nowy start.
-//                ->transition (RESET_STAGE_POWER_OFF)->when (&statusHigh)
-                ->transition (RESET_STAGE_POWER_ON)->when (/*&statusLow*/&alwaysTrue)
+                ->transition (PIN_STATUS_CHECK)->when (beginsWith<BinaryEvent> ("RDY")) // To oznacza, że wcześniej nie było zasilania, czyli nowy start.
+                ->transition (RESET_STAGE_POWER_OFF)->when (&statusHigh)
+                ->transition (RESET_STAGE_POWER_ON)->when (&statusLow)
                 /*->transition (RESET_STAGE_DECIDE)->when (&hardResetDelay)*/;
 
         m->state (RESET_STAGE_POWER_OFF)->entry (gsmPwrCycle)
@@ -112,8 +115,8 @@ Mc60Modem::Mc60Modem (Usart &u, Gpio &pwrKey, Gpio &status, Callback *c)
 
         // M66_Hardware_Design strona 25. Pierwszą komendę po 4-5 sekundach od włączenia.
         m->state (RESET_STAGE_POWER_ON)->entry (gsmPwrCycle)
-//                        ->transition (PIN_STATUS_CHECK)->when (beginsWith ("RDY"))
-                ->transition (INIT)->when (/*&statusHigh*/&alwaysTrue)->then (and_action (and_action<BinaryEvent> (delayMs <BinaryEvent>(2000), &initgsmUsart), delayMs<BinaryEvent> (5500)))
+                ->transition (PIN_STATUS_CHECK)->when (beginsWith<BinaryEvent> ("RDY"))
+                ->transition (INIT)->when (&statusHigh)->then (and_action (and_action<BinaryEvent> (delayMs <BinaryEvent>(2000), &initgsmUsart), delayMs<BinaryEvent> (5500)))
                 /*->transition (RESET_STAGE_DECIDE)->when (&hardResetDelay)*/;
 
         /*---------------------------------------------------------------------------*/
@@ -130,7 +133,7 @@ Mc60Modem::Mc60Modem (Usart &u, Gpio &pwrKey, Gpio &status, Callback *c)
         /*---------------------------------------------------------------------------*/
 
         m->state (INIT)->entry (at ("AT\r\n"))
-                ->transition (GNSS_SET_PORT)->when (anded<BinaryEvent> (eq<BinaryEvent> ("AT"), &ok))->then (&delay);
+                ->transition (GNSS_STATE_CHECK)->when (anded<BinaryEvent> (eq<BinaryEvent> ("AT"), &ok))->then (&delay);
 
         /*---------------------------------------------------------------------------*/
         /*
@@ -139,28 +142,27 @@ Mc60Modem::Mc60Modem (Usart &u, Gpio &pwrKey, Gpio &status, Callback *c)
          * obydwie maszyny [sprawdzić, czy nie zaimplementowałem czegoś takiego]).
          */
 
-        m->state (GNSS_SET_PORT)->entry (at ("AT+QGPSCFG=\"outport\",\"uartnmea\"\r\n"))
-                ->transition (GNSS_STATE_CHECK)->when (&ok)->then (&delay);
+        m->state (GNSS_STATE_CHECK)->entry (at ("AT+QGNSSC?\r\n"))
+                ->transition (GNSS_TURN_ON)->when (eq<BinaryEvent> ("+QGNSSC: 0"))->then (&delay)
+                ->transition (PIN_STATUS_CHECK)->when (eq<BinaryEvent> ("+QGNSSC: 1"))->then (&delay);
 
-        m->state (GNSS_STATE_CHECK)->entry (at ("AT+QGPS?\r\n"))
-                ->transition (GNSS_TURN_ON)->when (eq<BinaryEvent> ("+QGPS: 0"))->then (&delay)
-                ->transition (PIN_STATUS_CHECK)->when (eq<BinaryEvent> ("+QGPS: 1"))->then (&delay);
-
-        // 1 : standalone, 2 : MS-based, 3 : MS-assisted, 4 : Speed-optimal
-        m->state (GNSS_TURN_ON)->entry (at ("AT+QGPS=1\r\n"))
-                ->transition (GNSS_STATE_CHECK)->when (beginsWith<BinaryEvent> ("+CME ERROR: 5"))
-                ->transition (PIN_STATUS_CHECK)->when (&ok)->then (&delay);
+        m->state (GNSS_TURN_ON)->entry (at ("AT+QGNSSC=1\r\n"))
+                ->transition (GNSS_STATE_CHECK)->when (beginsWith<BinaryEvent> ("+CME ERROR"))
+                ->transition (PIN_STATUS_CHECK)->when (anded <BinaryEvent> (&ok, eq<BinaryEvent> ("AT+QGNSSC=1")))->then (&delay);
 
         /*---------------------------------------------------------------------------*/
 
         m->state (PIN_STATUS_CHECK)->entry (at ("AT+CPIN?\r\n"))
-                ->transition (SIGNAL_QUALITY_CHECK)->when (anded<BinaryEvent> (eq<BinaryEvent> ("+CPIN: READY"), &ok))->then (&delay)
+                ->transition (/*GET_SIM_IMSI*/SIGNAL_QUALITY_CHECK)->when (anded<BinaryEvent> (eq<BinaryEvent> ("+CPIN: READY"), &ok))->then (&delay)
                 ->transition (PIN_STATUS_CHECK)->when (&error)->then (delayMs<BinaryEvent> (4000))
                 ->transition (ENTER_PIN)->when (anded<BinaryEvent> (eq<BinaryEvent> ("+CPIN: SIM PIN"), &ok))->then (&delay);
 
         m->state (ENTER_PIN)->entry (at ("AT+CPIN=1220\r\n"))
                 ->transition (PIN_STATUS_CHECK)->when (anded<BinaryEvent> (beginsWith<BinaryEvent> ("AT+CPIN="), &ok))->then (&delay)
                 ->transition (PIN_STATUS_CHECK)->when (&error)->then (delayMs<BinaryEvent> (4000));
+
+//        m->state (GET_SIM_IMSI)->entry (at ("AT+CIMI\r\n"))
+//                ->transition (SIGNAL_QUALITY_CHECK)->when (&ok)->then (&delay);
 
         /*
          * Check Signal Quality response:
@@ -180,7 +182,7 @@ Mc60Modem::Mc60Modem (Usart &u, Gpio &pwrKey, Gpio &status, Callback *c)
         // TODO Tu powinno być jakieś logowanie tej siły sygnału.
         m->state (SIGNAL_QUALITY_CHECK)->entry (at ("AT+CSQ\r\n"))
                 ->transition (SIGNAL_QUALITY_CHECK)->when (anded<BinaryEvent> (like<BinaryEvent> ("+CSQ: 99,%"), &ok))->then (&longDelay)
-                ->transition (NETWORK_REGISTRATION_CHECK)->when (anded<BinaryEvent> (beginsWith<BinaryEvent> ("+CSQ:"), &ok))->then (&delay);
+                ->transition (REGISTRATION_CHECK)->when (anded<BinaryEvent> (beginsWith<BinaryEvent> ("+CSQ:"), &ok))->then (&delay);
 
         /*
          * Check Network Registration Status response:
@@ -208,32 +210,40 @@ Mc60Modem::Mc60Modem (Usart &u, Gpio &pwrKey, Gpio &status, Callback *c)
          * two byte cell ID in hexadecimal format
          */
         // TODO Parsowanie drugiej liczby po przecinku. Jak 1 lub 5, to idziemy dalej.
-        m->state (NETWORK_REGISTRATION_CHECK)->entry (at ("AT+CREG?\r\n"))
+        m->state (REGISTRATION_CHECK)->entry (at ("AT+CREG?\r\n"))
                 ->transition (SIGNAL_QUALITY_CHECK)->when (anded<BinaryEvent> (ored<BinaryEvent> (like<BinaryEvent> ("+CREG: %,0%"), like<BinaryEvent> ("+CREG: %,2%")), &ok))->then (delayMs<BinaryEvent> (5000))
                 ->transition (SIGNAL_QUALITY_CHECK)->when (anded<BinaryEvent> (ored<BinaryEvent> (like<BinaryEvent> ("+CREG: %,3%"), like<BinaryEvent> ("+CREG: %,4%")), &ok))->then (delayMs<BinaryEvent> (5000))
                 ->transition (INIT)->when (&error)->then (&longDelay)
-                ->transition (APN_USER_PASSWD_INPUT)->when (anded<BinaryEvent> (ored<BinaryEvent> (like<BinaryEvent> ("+CREG: %,1%"), like<BinaryEvent> ("+CREG: %,5%")), &ok)); // Zarejestorwał się do sieci.
+                ->transition (GPRS_ATTACH_CHECK)->when (anded<BinaryEvent> (ored<BinaryEvent> (like<BinaryEvent> ("+CREG: %,1%"), like<BinaryEvent> ("+CREG: %,5%")), &ok)); // Zarejestorwał się do sieci.
+
+        m->state (GPRS_ATTACH_CHECK)->entry (at ("AT+CGATT?\r\n"))
+                ->transition (GPRS_ATTACH_CHECK)->when (anded<BinaryEvent> (eq<BinaryEvent> ("+CGATT: 0"), &ok))->then (&delay)
+                ->transition (SET_CONTEXT)->when (anded<BinaryEvent> (eq<BinaryEvent> ("+CGATT: 1"), &ok));
+
+        m->state (SET_CONTEXT)->entry (at ("AT+QIFGCNT=0\r\n"))
+                ->transition(APN_USER_PASSWD_INPUT)->when (anded (eq<BinaryEvent> ("AT+QIFGCNT=0"), &ok));
 
         // Start Task and Set APN, USER NAME, PASSWORD
         // TODO Uwaga! kiedy ERROR, to idzie do GPRS_RESET, który ostatnio też zwracał ERROR i wtedy twardy reset. Czemu?
-        m->state (APN_USER_PASSWD_INPUT)->entry (at ("AT+QICSGP=1,1,\"internet\"\r\n"))
+        m->state (APN_USER_PASSWD_INPUT)->entry (at ("AT+QICSGP=1,\"internet\"\r\n"))
                 ->transition (GPRS_RESET)->when (&error)->then (&longDelay)
-                ->transition (PDP_CONTEXT_CHECK)->when (anded<BinaryEvent> (beginsWith<BinaryEvent> ("AT+QICSGP="), &ok))->then (&delay);
+                ->transition (/*PDP_CONTEXT_CHECK*/MULTIPLE_CONNECTIONS_OFF)->when (anded<BinaryEvent> (beginsWith<BinaryEvent> ("AT+QICSGP="), &ok))->then (&delay);
 
-        m->state (PDP_CONTEXT_CHECK)->entry (at ("AT+QIACT?\r\n"))
-                ->transition(DNS_CONFIG)->when (like<BinaryEvent> ("+QIACT:%1,%"))->then (&delay)
-                ->transition(ACTIVATE_PDP_CONTEXT)->when (seq<BinaryEvent> (*beginsWith<BinaryEvent> ("AT+QIACT?"), ok))->then (&delay);
+        m->state (MULTIPLE_CONNECTIONS_OFF)->entry (at ("AT+QIMUX=0\r\n"))
+                  ->transition (DNS_CONFIG)->when (anded<BinaryEvent> (beginsWith<BinaryEvent> ("AT+QIMUX="), &ok))->then (&delay);
 
-        m->state (ACTIVATE_PDP_CONTEXT)->entry (at ("AT+QIACT=1\r\n"))
-                ->transition(DNS_CONFIG)->when (seq<BinaryEvent> (*beginsWith<BinaryEvent> ("AT+QIACT="), ok))->then (&delay);
+        m->state (SET_MODEM_MODE)->entry (at ("AT+QIMODE=0\r\n"))
+                 ->transition (DNS_CONFIG)->when (anded<BinaryEvent> (eq<BinaryEvent> ("AT+QIMODE=0"), &ok))->then (&delay);
 
         m->state (DNS_CONFIG)->entry (at ("AT+QIDNSCFG=1,\"8.8.8.8\",\"8.8.4.4\"\r\n"))
                 ->transition (INIT)->when (&error)->then (&longDelay)
-                ->transition (NETWORK_GPS_USART_ECHO_OFF)->when (anded<BinaryEvent> (beginsWith<BinaryEvent> ("AT+QIDNSCFG="), &ok))->then (&delay);
+                ->transition (USE_DNS)->when (anded<BinaryEvent> (beginsWith<BinaryEvent> ("AT+QIDNSCFG="), &ok))->then (&delay);
 
-        // Wyłącz ECHO podczas wysyłania danych.
-        m->state (NETWORK_GPS_USART_ECHO_OFF)->entry (at ("AT+QISDE=0\r\n"))
-                ->transition (CONTROL_WAIT_FOR_CONNECT)->when (/*anded (&configurationWasRead,*/ anded<BinaryEvent> (beginsWith<BinaryEvent> ("AT+QISDE=0"), &ok));
+        m->state (USE_DNS)->entry (at ("AT+QIDNSIP=1\r\n"))
+                ->transition (SET_RECEIVE_MODE)->when (anded<BinaryEvent> (beginsWith<BinaryEvent> ("AT+QIDNSIP="), &ok))->then (&delay);
+
+        m->state (SET_RECEIVE_MODE)->entry (at ("AT+QINDI=2\r\n"))
+                ->transition (CONTROL_WAIT_FOR_CONNECT)->when (anded<BinaryEvent> (eq<BinaryEvent> ("AT+QINDI=2"), &ok))->then (&delay);
 
         m->state (CONTROL_WAIT_FOR_CONNECT)
                 ->transition (CHECK_CONNECTION)->when (eq<BinaryEvent> ("_CONN", StripInput::DONT_STRIP, InputRetention::RETAIN_INPUT))->defer (0, true);
@@ -242,12 +252,12 @@ Mc60Modem::Mc60Modem (Usart &u, Gpio &pwrKey, Gpio &status, Callback *c)
         /*--Connecting---------------------------------------------------------------*/
         /*---------------------------------------------------------------------------*/
 
-        m->state (CLOSE_AND_RECONNECT)->entry (at ("AT+QICLOSE=1\r\n"))
+        m->state (CLOSE_AND_RECONNECT)->entry (at ("AT+QICLOSE\r\n"))
                 ->transition (CONNECT_TO_SERVER)->when(anded<BinaryEvent> (beginsWith<BinaryEvent> ("AT+QICLOSE"), &ok))->then (delayMs<BinaryEvent> (1000));
 
         // Kiedy nie ma połączenia, to ta komenda nic nie zwraca. ROTFL.
-        m->state (CHECK_CONNECTION)->entry (and_action<BinaryEvent> (at ("AT+QISTATE=1,1\r\n"), delayMs<BinaryEvent> (50)))
-                ->transition (NETWORK_BEGIN_RECEIVE)->when (beginsWith<BinaryEvent> ("+QISTATE: 1,\"TCP\""))
+        m->state (CHECK_CONNECTION)->entry (and_action<BinaryEvent> (at ("AT+QISTATE\r\n"), delayMs<BinaryEvent> (50)))
+                ->transition (NETWORK_GPS_USART_ECHO_OFF)->when (beginsWith<BinaryEvent> ("STATE: CONNECT OK"))
                 ->transition (CONNECT_TO_SERVER)->when (&alwaysTrue);
 
         /*
@@ -257,47 +267,17 @@ Mc60Modem::Mc60Modem (Usart &u, Gpio &pwrKey, Gpio &status, Callback *c)
                     static char qiopenCommand[QIOPEN_BUF_LEN];
                     const char *serverAddress = e.argStr;
                     const uint16_t serverPort = e.argInt1;
-                    /*
-                     * Przedostatni parametr 0 oznacza local port i 0 oznacza, że zostanie nadany automatycznie,
-                     * a ostatni parametr równy 1 oznacza access_mode, gdzie 1 oznacza "direct push mode". Ten tryb
-                     * powoduje, że jeśli dostanę dane zwrotne z serwera, to one sie pojawią na UART. W trybie 0,
-                     * czyli "buffer access mode" w takiej sytuacji pojawia się tylko informacja, że otrzymaliśmy
-                     * nowe dane z serwera, ale żeby je odczytać, trzeba wydać dodatkowe komendy.
-                     *
-                     * 0 Buffer access mode
-                     *
-                     * Zalety : kiedy przychodzą dane (możemy być wtedy w kilku różnych stanach dotyczących wysyłania),
-                     * to dostajemy QIURC "recv" i numer połączenia, a dane się buforują w modemie i trzeba wydać dodatkową
-                     * komendę żeby je odebrać (QIRD).
-                     *
-                     * Wady : komunikat QUIRC "recv" pokazuje się *tylko* za pierwszym razem, a potem kiedy dochodzą nowe
-                     * dane, to już nie. Trzeba wydać tą dodatkową komendę (QIRD), zczytać wszystko i dopiero po tym
-                     * QIURC znów się pokaże. Czyli jeśli w buforze coś jest, to on nie wysyła QIURC. To stanowi problem,
-                     * bo nie wiem jeszcze jak skonfigurować stany.
-                     *
-                     * 1 Direct push mode
-                     *
-                     * Zalety : powiadomienie o nowych danych (QIURC "recv") pokazuje się zawsze kiedy nowe dane przychodzą
-                     * z serwera.
-                     *
-                     * Wady : dane są doklejone natychmiast za tym powiadomieniem, więc mamy ledwie mikrosekundy żeby zmienić
-                     * stan maszyny i wykonać jakieś akcje. A te akcje to sparsowanie ile jest danych wejściowych, ustawienie
-                     * Sink w tryb bajtowy i jeszcze przecież log leci (on pewnie zabija ten proces). To powoduje, że
-                     * maszyna przegapia dane. Taka jest moja diagnoza na teraz.
-                     *
-                     * 2 Transparent access mode
-                     */
-                     snprintf (qiopenCommand, QIOPEN_BUF_LEN, "AT+QIOPEN=1,1,\"TCP\",\"%s\",%d,0,0\r\n", serverAddress, serverPort);
+                     snprintf (qiopenCommand, QIOPEN_BUF_LEN, "AT+QIOPEN=\"TCP\",\"%s\",\"%d\"\r\n", serverAddress, serverPort);
                     u.transmit (qiopenCommand);
                     return true;
                 }))
-                ->transition (NETWORK_BEGIN_RECEIVE)->when (beginsWith<BinaryEvent> ("+QIOPEN: 1,0"))->then (and_action (delayMs<BinaryEvent> (1000), func<BinaryEvent> ([this] (BinaryEvent const &) {
+                ->transition (NETWORK_GPS_USART_ECHO_OFF)->when (ored<BinaryEvent> (eq<BinaryEvent> ("CONNECT OK"), eq<BinaryEvent> ("ALREADY CONNECT")))->then (and_action (delayMs<BinaryEvent> (1000), func<BinaryEvent> ([this] (BinaryEvent const &) {
                     if (callback) {
                         callback->onConnected (0);
                      }
                     return true;
                 })))
-                ->transition (CLOSE_AND_RECONNECT)->when (ored<BinaryEvent> (beginsWith<BinaryEvent> ("+QIOPEN: 1"), &error))->then(delayMs<BinaryEvent> (1000));
+                ->transition (CLOSE_AND_RECONNECT)->when (ored<BinaryEvent> (eq<BinaryEvent> ("CONNECT FAIL"), &error))->then(delayMs<BinaryEvent> (1000));
 
         static BeginsWithCondition<BinaryEvent> disconnected ("+QIURC: \"closed\",");
 //        static BeginsWithCondition<BinaryEvent> received ("+QIURC: \"recv\",1", StripInput::STRIP, InputRetention::RETAIN_INPUT);
@@ -306,21 +286,20 @@ Mc60Modem::Mc60Modem (Usart &u, Gpio &pwrKey, Gpio &status, Callback *c)
         /*--Data-reception-----------------------------------------------------------*/
         /*---------------------------------------------------------------------------*/
 
+        // Wyłącz ECHO podczas wysyłania danych.
+        m->state (NETWORK_GPS_USART_ECHO_OFF)->entry (at ("AT+QISDE=0\r\n"))
+                ->transition (NETWORK_BEGIN_RECEIVE)->when (/*anded (&configurationWasRead,*/ anded<BinaryEvent> (beginsWith<BinaryEvent> ("AT+QISDE=0"), &ok));
+
         static ParseRecvLengthCondition <int, BinaryEvent> parseRecvLenCondition (&bytesReceived);
 
-        m->state (NETWORK_BEGIN_RECEIVE)->entry (at ("AT+QIRD=1\r\n"))
+        // TODO change this hardcoded 64
+        m->state (NETWORK_BEGIN_RECEIVE)->entry (and_action (at ("AT+QIRD=0,1,0,64\r\n"), &delay))
                 ->transition (NETWORK_RECEIVE)->when (&parseRecvLenCondition)->thenf ([this] (BinaryEvent const &) {
-//                    debugPin = false;
                     modemResponseSink.receiveBytes (bytesReceived);
                     return true;
                 })
-                ->transition (NETWORK_BEGIN_SEND)->when (eq<BinaryEvent> ("+QIRD: 0"))
+                ->transition (NETWORK_BEGIN_SEND)->when (anded (&ok, negated (beginsWith<BinaryEvent> ("+QIRD:"))))
                 ->transition (CLOSE_AND_RECONNECT)->when (&error);
-
-//        static int connectionId;
-
-//        m->state (NETWORK_BEGIN_RECEIVE)->entry (&parseRecvLenAction)
-//                ->transition (NETWORK_RECEIVE)->when (&alwaysTrue);
 
         m->state (NETWORK_RECEIVE)
                 // TODO Zamist like, to powinno być jakieś "anyEvent"
@@ -353,7 +332,7 @@ Mc60Modem::Mc60Modem (Usart &u, Gpio &pwrKey, Gpio &status, Callback *c)
         m->state (NETWORK_QUERY_MODEM_OUTPUT_BUFFER_MAX_LEN)->entry (at ("AT+QISEND=?\r\n"))
                 ->transition (CLOSE_AND_RECONNECT)->when (&disconnected)
                 ->transition (CHECK_CONNECTION)->when (beginsWith<BinaryEvent> ("+QISEND: 0"))
-                ->transition (NETWORK_PREPARE_SEND)->when (anded<BinaryEvent> (beginsWith<BinaryEvent> ("+QISEND: (0-11),(0-1460)"), &ok));
+                ->transition (NETWORK_PREPARE_SEND)->when (anded<BinaryEvent> (beginsWith<BinaryEvent> ("+QISEND: <length>"), &ok));
 
         /*
          * Uwaga, wysłanie danych jest zaimplementowane w 2 stanach. W NETWORK_PREPARE_SEND idzie USARTem komenda AT+CIPSEND=<bbb>, a w
@@ -390,9 +369,9 @@ Mc60Modem::Mc60Modem (Usart &u, Gpio &pwrKey, Gpio &status, Callback *c)
                 ->transition (CANCEL_SEND)->when (msPassed<BinaryEvent> (TCP_SEND_DATA_DELAY_MS, &gsmTimeCounter))
                 ->transition (CLOSE_AND_RECONNECT)->when (ored<BinaryEvent> (ored<BinaryEvent> (&error, eq<BinaryEvent> ("CLOSED")), ored (eq<BinaryEvent> ("SEND FAIL"), eq<BinaryEvent> ("+PDP: DEACT"))))->then (&longDelay);
 
-        m->state (NETWORK_ACK_CHECK)->entry (at ("AT+QISEND=1,0\r\n"))
+        m->state (NETWORK_ACK_CHECK)->entry (at ("AT+QISACK\r\n"))
                 ->transition (CLOSE_AND_RECONNECT)->when (&disconnected)
-                ->transition (NETWORK_ACK_CHECK_PARSE)->when (anded<BinaryEvent> (&ok, beginsWith<BinaryEvent> ("+QISEND: ", StripInput::STRIP, InputRetention::RETAIN_INPUT)));
+                ->transition (NETWORK_ACK_CHECK_PARSE)->when (anded<BinaryEvent> (&ok, beginsWith<BinaryEvent> ("+QISACK: ", StripInput::STRIP, InputRetention::RETAIN_INPUT)));
 
         static int sent;
         static int acked;
@@ -447,6 +426,7 @@ bool Mc60Modem::connect (const char *address, uint16_t port)
 {
         int firstEmptyConnectionNumber = -1;
 
+        // TODO throw away and focus on single connections only
         // Find empty connectionId. BG96 can establish only 12 connections.
         for (int i = 0; i < MAX_CONNECTIONS; ++i) {
                 if (connectionState[i] == NOT_CONNECTED) {

@@ -19,7 +19,7 @@
 #include "character/FixedLineSink.h"
 #include "collection/CircularBuffer.h"
 /**
- * @brief The Bg96 class
+ * Quectel Mc60 implementation.
  */
 class Mc60Modem : public AbstractModem {
 public:
