@@ -125,7 +125,7 @@ Esp8266::Esp8266 (Usart &u) : WifiCard (u), dataToSendBuffer (2048 * 3), respons
 //        m->state (CLOSE_AND_RECONNECT)->entry (and_action (at ("AT+CIPCLOSE=0\r\n"), &delay))
 //                ->transition (CONNECT_TO_SERVER)->when(&alwaysTrue)->then (&delay);
 
-        m->state (CONNECT_TO_SERVER)->entry (at ("AT+CIPSTART=0,\"TCP\",\"trackmatevm.cloudapp.net\",1883\r\n"))
+        m->state (CONNECT_TO_SERVER)->entry (at ("AT+CIPSTART=0,\"TCP\",\"192.168.0.29\",1883\r\n"))
                 ->transition (NETWORK_ECHO_OFF)->when (anded (like ("%,CONNECT"), &ok))->then (&delay)
                 ->transition (NETWORK_ECHO_OFF)->when (anded (eq ("ALREADY CONNECTED"), eq ("ERROR")))->then (&delay);
 

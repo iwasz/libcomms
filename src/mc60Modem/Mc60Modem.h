@@ -23,7 +23,7 @@
  */
 class Mc60Modem : public AbstractModem {
 public:
-        Mc60Modem (Usart &u, Gpio &pwrKeyPin, Gpio &statusPin, Callback *c = nullptr);
+        Mc60Modem (Usart &u, Gpio &pwrKeyPin, Gpio &statusPin, Callback *c = nullptr, bool gpsOn = true);
         // Bg96Modem (Callback &c, Usart &u, Gpio &pwrKeyPin, Gpio &statusPin);
         virtual ~Mc60Modem () override = default;
 
