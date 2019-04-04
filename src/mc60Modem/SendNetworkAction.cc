@@ -15,7 +15,6 @@ extern Usart *modemUsart;
 
 bool SendNetworkAction::run (const EventType &event)
 {
-#ifndef UNIT_TEST
         /*
          * Przygotowuje i wysyła taką "preambułę", która mówi ile bajtów będzie
          * wysyłanych w następnym kroku.
@@ -73,7 +72,7 @@ bool SendNetworkAction::run (const EventType &event)
                 gsmBuffer->declareRead (*bytesToSendInSendStage);
                 // debug->log (GSM_DECLARED_SEND_B, GSM_DECLARED_SEND_B_T, bytesToSendInSendStage);
         }
-#endif
+
         return true;
 }
 

@@ -47,9 +47,11 @@ template <typename T> bool QueryAckAction<T>::run (const EventType &event)
         *nAcked = 0;
 
         EventType copy = event;
+        // TODO
         const char *input = reinterpret_cast<const char *> (copy.data ());
 
-        char *b = strstr (input, "+QISACK:");
+        // TODO
+        char *b = const_cast<char *> (strstr (input, "+QISACK:"));
 
         if (!b) {
                 return true;

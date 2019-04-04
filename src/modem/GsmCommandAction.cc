@@ -7,14 +7,23 @@
 //#include "System.h"
 //#endif
 
+#ifdef UNIT_TEST
+#include <iostream>
+#endif
+
 extern Usart *modemUsart;
 
 #ifdef UNIT_TEST
 std::vector<std::string> gsmModemCommandsIssued;
 
-bool GsmCommandAction::run (const char *)
+bool AtCommandAction::run (EventType const &)
 {
         gsmModemCommandsIssued.push_back (command);
+
+#ifdef UNIT_TEST
+        std::cout << "OUT : " << command << std::flush;
+#endif
+
         return true;
 }
 

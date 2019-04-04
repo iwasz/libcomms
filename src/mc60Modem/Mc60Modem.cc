@@ -300,7 +300,6 @@ Mc60Modem::Mc60Modem (Usart &u, Gpio &pwrKey, Gpio &status, Callback *c, bool gp
                     return true;
                 })
                 ->transition (NETWORK_BEGIN_SEND)->when (&recvDelay)
-//                ->transition (NETWORK_BEGIN_SEND)->when (&ok)
                 ->transition (CLOSE_AND_RECONNECT)->when (&error);
 
         m->state (NETWORK_RECEIVE)

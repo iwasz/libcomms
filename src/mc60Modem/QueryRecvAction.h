@@ -13,6 +13,7 @@
 #include "BinaryEvent.h"
 #include "Condition.h"
 #include "Debug.h"
+// #include <charconv>
 #include <cstdio>
 #include <cstring>
 
@@ -150,12 +151,29 @@ template <typename IntT, typename EventT> bool ParseRecvLengthCondition<IntT, Ev
         }
 
         std::advance (i, 1);
+        // TODO Unasfe :(
+        const char *first = reinterpret_cast<const char *> (i);
+        const char *last = reinterpret_cast<const char *> (event.cend ());
+
+#if 0
+        if (auto [p, ec] = std::from_chars (first, last, *bytesReceived); ec != std::errc{}) {
+                // Error parsing response
+                Error_Handler ();
+        }
+#else
         const char *input = reinterpret_cast<const char *> (i);
-        char buf[10];
-        int size = event.size () - 7;
+        constexpr size_t MAX_BUF = 10;
+        char buf[MAX_BUF];
+        int size = std::distance (i, event.cend ());
+
+        if (size >= MAX_BUF) {
+                Error_Handler ();
+        }
+
         memcpy (buf, input, size);
         buf[size] = '\0';
         *bytesReceived = strtoul (buf, nullptr, 10);
+#endif
 
 #if 0
         debug->print ("bytesReceived: ");

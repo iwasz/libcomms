@@ -18,13 +18,17 @@
 #include "character/BufferedCharacterSink.h"
 #include "character/FixedLineSink.h"
 #include "collection/CircularBuffer.h"
+
 /**
  * Quectel Mc60 implementation.
+ *
+ * TODO
+ * - Rremove modem buffer size query : AT+QISEND=? because like most Quectel modems it returns "<length>"
+ * instead of actual (numeric) length.
  */
 class Mc60Modem : public AbstractModem {
 public:
         Mc60Modem (Usart &u, Gpio &pwrKeyPin, Gpio &statusPin, Callback *c = nullptr, bool gpsOn = true);
-        // Bg96Modem (Callback &c, Usart &u, Gpio &pwrKeyPin, Gpio &statusPin);
         virtual ~Mc60Modem () override = default;
 
         /*-ICommunicationInterface---------------------------------------------------*/
