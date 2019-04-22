@@ -55,10 +55,10 @@ public:
         static constexpr size_t TCP_SEND_DATA_DELAY_MS = 9000;
 
         /// Po jakim czasie resetujemy modem / OBD(?) na miękko jeśli stan się nie zmienił.
-        static constexpr size_t SOFT_RESET_DELAY_MS = 10000;
+        static constexpr size_t SOFT_RESET_DELAY_MS = 15000;
 
         /// Po jakim czasie resetujemy modem / OBD(?) na TWARDO jeśli stan się nie zmienił.
-        static constexpr size_t HARD_RESET_DELAY_MS = 9000;
+        static constexpr size_t HARD_RESET_DELAY_MS = 14000;
 
         // Temporary buffer len.
         static constexpr size_t QIOPEN_BUF_LEN = 64;
@@ -81,7 +81,7 @@ private:
         StateMachine<BinaryEvent> machine;
 
         FixedLineSink<StateMachine<BinaryEvent>::EventQueue> modemResponseSink;
-        BufferedCharacterSink<64> bufferedSink;
+        BufferedCharacterSink<128> bufferedSink;
         ConnectionState connectionState[MAX_CONNECTIONS] = { NOT_CONNECTED };
 };
 

@@ -12,7 +12,8 @@
 #include <etl/vector.h>
 //#include <variant>
 
-using UintVector = etl::vector<uint8_t, 64>;
+static constexpr size_t BINARY_EVENT_MAX_SIZE = 128;
+using UintVector = etl::vector<uint8_t, BINARY_EVENT_MAX_SIZE>;
 
 struct BinaryEvent : public UintVector {
         using UintVector::UintVector;

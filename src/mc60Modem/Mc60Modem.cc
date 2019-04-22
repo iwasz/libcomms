@@ -117,7 +117,7 @@ Mc60Modem::Mc60Modem (Usart &u, Gpio &pwrKey, Gpio &status, Callback *c, bool gp
         // M66_Hardware_Design strona 25. Pierwszą komendę po 4-5 sekundach od włączenia.
         m->state (RESET_STAGE_POWER_ON)->entry (gsmPwrCycle)
                 ->transition (PIN_STATUS_CHECK)->when (beginsWith<BinaryEvent> ("RDY"))
-                ->transition (INIT)->when (&statusHigh)->then (and_action (and_action<BinaryEvent> (delayMs <BinaryEvent>(2000), &initgsmUsart), delayMs<BinaryEvent> (5500)))
+                ->transition (INIT)->when (&statusHigh)->then (and_action (and_action<BinaryEvent> (delayMs<BinaryEvent> (12000), &initgsmUsart), delayMs<BinaryEvent> (1000)))
                 /*->transition (RESET_STAGE_DECIDE)->when (&hardResetDelay)*/;
 
         /*---------------------------------------------------------------------------*/
@@ -217,7 +217,7 @@ Mc60Modem::Mc60Modem (Usart &u, Gpio &pwrKey, Gpio &status, Callback *c, bool gp
                 ->transition (GPRS_ATTACH_CHECK)->when (anded<BinaryEvent> (ored<BinaryEvent> (like<BinaryEvent> ("+CREG: %,1%"), like<BinaryEvent> ("+CREG: %,5%")), &ok)); // Zarejestorwał się do sieci.
 
         m->state (GPRS_ATTACH_CHECK)->entry (at ("AT+CGATT?\r\n"))
-                ->transition (GPRS_ATTACH_CHECK)->when (anded<BinaryEvent> (eq<BinaryEvent> ("+CGATT: 0"), &ok))->then (&delay)
+                ->transition (GPRS_ATTACH_CHECK)->when (anded<BinaryEvent> (eq<BinaryEvent> ("+CGATT: 0"), &ok))->then (&longDelay)
                 ->transition (SET_CONTEXT)->when (anded<BinaryEvent> (eq<BinaryEvent> ("+CGATT: 1"), &ok));
 
         m->state (SET_CONTEXT)->entry (at ("AT+QIFGCNT=0\r\n"))
@@ -302,7 +302,7 @@ Mc60Modem::Mc60Modem (Usart &u, Gpio &pwrKey, Gpio &status, Callback *c, bool gp
                 ->transition (NETWORK_BEGIN_SEND)->when (&recvDelay)
                 ->transition (CLOSE_AND_RECONNECT)->when (&error);
 
-        m->state (NETWORK_RECEIVE)
+        m->state (NETWORK_RECEIVE)->exit (&delay)
                 ->transition (NETWORK_BEGIN_SEND)->when (notEmpty<BinaryEvent> (InputRetention::RETAIN_INPUT))->thenf ([this] (BinaryEvent const &input) {
                     if (callback) {
                         callback->onData (input.data (), input.size ());
