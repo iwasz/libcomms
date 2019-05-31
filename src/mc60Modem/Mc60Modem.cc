@@ -81,8 +81,12 @@ Mc60Modem::Mc60Modem (Usart &u, Gpio &pwrKey, Gpio &status, Callback *c, bool gp
         static DelayAction<BinaryEvent> delay (100);
         static DelayAction<BinaryEvent> longDelay (1000);
         static LikeCondition<BinaryEvent> error ("%ERROR%");
-        auto gsmPwrCycle = and_action<BinaryEvent> (and_action<BinaryEvent> (new PwrKeyAction (false, pwrKeyPin), delayMs<BinaryEvent> (1200)),
-                                                    new PwrKeyAction (true, pwrKeyPin));
+        auto gsmPwrCycleOn = and_action<BinaryEvent> (and_action<BinaryEvent> (new PwrKeyAction (false, pwrKeyPin), delayMs<BinaryEvent> (1200)),
+                                                      new PwrKeyAction (true, pwrKeyPin));
+
+        auto gsmPwrCycleOff = and_action<BinaryEvent> (and_action<BinaryEvent> (new PwrKeyAction (false, pwrKeyPin), delayMs<BinaryEvent> (800)),
+                                                      new PwrKeyAction (true, pwrKeyPin));
+
         static StatusPinCondition statusLow (false, statusPin);
         static StatusPinCondition statusHigh (true, statusPin);
         static TimeCounter gsmTimeCounter; /// Odmierza czas między zmianami stanów GPS i GSM aby wykryć zwiechę.
@@ -110,12 +114,12 @@ Mc60Modem::Mc60Modem (Usart &u, Gpio &pwrKey, Gpio &status, Callback *c, bool gp
                 ->transition (RESET_STAGE_POWER_ON)->when (&statusLow)
                 /*->transition (RESET_STAGE_DECIDE)->when (&hardResetDelay)*/;
 
-        m->state (RESET_STAGE_POWER_OFF)->entry (gsmPwrCycle)
+        m->state (RESET_STAGE_POWER_OFF)->entry (gsmPwrCycleOff)
                 ->transition (RESET_STAGE_POWER_ON)->when (&statusLow)->then (delayMs<BinaryEvent> (500))
                 ->transition (RESET_STAGE_DECIDE)->when (&hardResetDelay);
 
         // M66_Hardware_Design strona 25. Pierwszą komendę po 4-5 sekundach od włączenia.
-        m->state (RESET_STAGE_POWER_ON)->entry (gsmPwrCycle)
+        m->state (RESET_STAGE_POWER_ON)->entry (gsmPwrCycleOn)
                 ->transition (PIN_STATUS_CHECK)->when (beginsWith<BinaryEvent> ("RDY"))
                 ->transition (INIT)->when (&statusHigh)->then (and_action (and_action<BinaryEvent> (delayMs<BinaryEvent> (12000), &initgsmUsart), delayMs<BinaryEvent> (1000)))
                 /*->transition (RESET_STAGE_DECIDE)->when (&hardResetDelay)*/;
@@ -408,7 +412,7 @@ Mc60Modem::Mc60Modem (Usart &u, Gpio &pwrKey, Gpio &status, Callback *c, bool gp
                 ->transition (SHUT_DOWN)->when (&statusLow);
 
         // Suppress, bo wyłączanie modemu może potrwać nawet do 12 sekund.
-        m->state (SHUT_DOWN_STAGE_POWER_OFF, StateFlags::SUPPRESS_GLOBAL_TRANSITIONS)->entry (and_action<BinaryEvent> (&deinitgsmUsart, gsmPwrCycle))
+        m->state (SHUT_DOWN_STAGE_POWER_OFF, StateFlags::SUPPRESS_GLOBAL_TRANSITIONS)->entry (and_action<BinaryEvent> (&deinitgsmUsart, gsmPwrCycleOn))
                 ->transition (SHUT_DOWN)->when (&statusLow)->then (delayMs<BinaryEvent> (500));
 
         // Stąd tylko resetem maszyny stanów.
