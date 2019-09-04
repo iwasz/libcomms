@@ -80,7 +80,7 @@ private:
         // TimeCounter gsmTimeCounter;  /// Odmierza czas między zmianami stanów GPS i GSM aby wykryć zwiechę.
         StateMachine<BinaryEvent> machine;
 
-        FixedLineSink<StateMachine<BinaryEvent>::EventQueue> modemResponseSink;
+        FixedLineSink<StateMachine<BinaryEvent>::EventQueue, BinaryEvent> modemResponseSink;
         BufferedCharacterSink<128> bufferedSink;
         ConnectionState connectionState[MAX_CONNECTIONS] = { NOT_CONNECTED };
 };
