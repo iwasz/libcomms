@@ -62,7 +62,11 @@ enum MachineState : size_t {
         NETWORK_ACK_CHECK_PARSE,
         GNSS_TURN_ON,
         GNSS_STATE_CHECK,
-        CONTROL_WAIT_FOR_CONNECT
+        CONTROL_WAIT_FOR_CONNECT,
+        AT_QBTPWR,
+        AT_QBTVISB,
+        AT_QBTGATSREG,
+        AT_QBTGATSL
 };
 
 /*****************************************************************************/
@@ -85,7 +89,7 @@ Mc60Modem::Mc60Modem (Usart &u, Gpio &pwrKey, Gpio &status, Callback *c, bool gp
                                                       new PwrKeyAction (true, pwrKeyPin));
 
         auto gsmPwrCycleOff = and_action<BinaryEvent> (and_action<BinaryEvent> (new PwrKeyAction (false, pwrKeyPin), delayMs<BinaryEvent> (800)),
-                                                      new PwrKeyAction (true, pwrKeyPin));
+                                                       new PwrKeyAction (true, pwrKeyPin));
 
         static StatusPinCondition statusLow (false, statusPin);
         static StatusPinCondition statusHigh (true, statusPin);
@@ -107,6 +111,7 @@ Mc60Modem::Mc60Modem (Usart &u, Gpio &pwrKey, Gpio &status, Callback *c, bool gp
         /* clang-format off */
 
         m->transition (GPRS_RESET)->when (&softResetDelay);
+        m->transition (SHUT_DOWN_STAGE_START)->when (eq<BinaryEvent> ("_OFF"));
 
         m->state (RESET_STAGE_DECIDE, StateFlags::INITIAL)->entry (/*and_action (&gpsReset,*/ and_action (&deinitgsmUsart, &delay))
                 ->transition (PIN_STATUS_CHECK)->when (beginsWith<BinaryEvent> ("RDY")) // To oznacza, że wcześniej nie było zasilania, czyli nowy start.
@@ -153,6 +158,22 @@ Mc60Modem::Mc60Modem (Usart &u, Gpio &pwrKey, Gpio &status, Callback *c, bool gp
             m->state (INIT)->entry (at ("AT\r\n"))
                     ->transition (PIN_STATUS_CHECK)->when (anded<BinaryEvent> (eq<BinaryEvent> ("AT"), &ok))->then (&delay);
         }
+
+        /*---------------------------------------------------------------------------*/
+        /* BLE                                                                       */
+        /*---------------------------------------------------------------------------*/
+
+        m->state (AT_QBTPWR)->entry (at ("AT+QBTPWR=1\r\n"))
+                ->transition (AT_QBTVISB)->when (anded<BinaryEvent> (beginsWith<BinaryEvent> ("AT+QBTPWR"), &ok))->then (&delay);
+
+        m->state (AT_QBTVISB)->entry (at ("AT+QBTVISB=0\r\n"))
+                ->transition (AT_QBTGATSREG)->when (anded<BinaryEvent> (beginsWith<BinaryEvent> ("AT+QBTVISB"), &ok))->then (&delay);
+
+        m->state (AT_QBTGATSREG)->entry (at ("AT+QBTGATSREG=1,\"ABC2\"\r\n"))
+                ->transition (AT_QBTGATSL)->when (anded<BinaryEvent> (beginsWith<BinaryEvent> ("AT+QBTGATSREG"), &ok))->then (&delay);
+
+        m->state (AT_QBTGATSL)->entry (at ("AT+QBTGATSL=\"ABC2\",1\r\n"))
+                ->transition (PIN_STATUS_CHECK)->when (anded<BinaryEvent> (beginsWith<BinaryEvent> ("AT+QBTGATSL"), &ok))->then (&delay);
 
         /*---------------------------------------------------------------------------*/
 
@@ -422,7 +443,25 @@ Mc60Modem::Mc60Modem (Usart &u, Gpio &pwrKey, Gpio &status, Callback *c, bool gp
 
 /*****************************************************************************/
 
-void Mc60Modem::power (bool on) {}
+void Mc60Modem::power (bool on)
+{
+
+        if (!on) {
+                {
+                        InterruptLock<CortexMInterruptControl> lock;
+
+                        if (!getEventQueue ().push_back ()) {
+                                return;
+                        }
+                }
+
+                BinaryEvent &ev = getEventQueue ().back ();
+                ev = { '_', 'O', 'F', 'F' };
+        }
+        else {
+                machine.reset ();
+        }
+}
 
 /*****************************************************************************/
 
