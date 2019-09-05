@@ -10,6 +10,7 @@
 #include "AtCommandAction.h"
 #include "Credentials.h"
 #include "SendNetworkAction.h"
+#include "UsartAction.h"
 
 // TODO !!!! wywalić!
 Usart *modemUsart;
@@ -28,7 +29,7 @@ enum ModemState : size_t {
         ACTIVATE_PDP_CONTEXT,
         APN_USER_PASSWD_INPUT,
         GPRS_CONNECTION_UP,
-        DNS_CONFIG,
+        NETWORK_DISCONNECT,
         CONNECT_TO_SERVER,
         CLOSE_AND_RECONNECT,
         SHUT_DOWN_STAGE_START,
@@ -43,7 +44,7 @@ enum ModemState : size_t {
         NETWORK_QUERY_MODEM_OUTPUT_BUFFER_MAX_LEN,
         NETWORK_GPS_USART_ECHO_OFF,
         NETWORK_DECLARE_READ,
-        NETWORK_ACK_CHECK,
+        LEAVE_TRANSPARENT,
         NETWORK_ACK_CHECK_PARSE,
         RESET_BOARD,
         SET_OPERATING_MODE,
@@ -56,7 +57,7 @@ enum ModemState : size_t {
         NETWORK_ECHO_OFF,
         NETWORK_ECHO_ON,
         MQTT_PUB,
-        CFG_CANCEL_SEND
+        IDLE
 };
 
 /*****************************************************************************/
@@ -85,96 +86,125 @@ Esp8266::Esp8266 (Usart &u) : WifiCard (u), dataToSendBuffer (2048 * 3), respons
         static TimePassedCondition hardResetDelay (HARD_RESET_DELAY_MS, &gsmTimeCounter);
         static_assert (HARD_RESET_DELAY_MS < SOFT_RESET_DELAY_MS, "HARD_RESET_DELAY_MS musi być mniejsze niż SOFT_RESET_DELAY_MS");
         static_assert (TCP_SEND_DATA_DELAY_MS < SOFT_RESET_DELAY_MS, "TCP_SEND_DATA_DELAY_MS musi być mniejsze niż SOFT_RESET_DELAY_MS");
+        static UsartAction initgsmUsart (u, UsartAction<>::INTERRUPT_ON);
+        static UsartAction deinitgsmUsart (u, UsartAction<>::INTERRUPT_OFF);
 
         /*---------------------------------------------------------------------------*/
         /* clang-format off */
 
-        m->transition (INIT)->when (&softResetDelay);
+        m->transition (RESET_BOARD)->when (&softResetDelay);
 
-        m->state (INIT, StateFlags::INITIAL)->entry (at ("ATE1\r\n"))
-                ->transition (CHECK_OPERATING_MODE)->when (&ok)->then (&delay);
+        // Reset.
+        m->state (RESET_BOARD, StateFlags::INITIAL)->entry (and_action (and_action (&longDelay, and_action (at ("+++"), &longDelay)), and_action (at ("AT+RST\r\n"), &deinitgsmUsart)))
+                ->transition (INIT)->when (&alwaysTrue)->then (&longDelay);
 
-        m->state (CHECK_OPERATING_MODE)->entry (and_action (at ("AT+CWMODE_DEF?\r\n"), &delay))
-                ->transition (VERIFY_CONNECTED_ACCESS_POINT)->when (eq ("+CWMODE_DEF:1"))->then (&delay)
-                ->transition (SET_OPERATING_MODE)->when (&alwaysTrue)->then (&delay);
+        // Echo off
+        m->state (INIT)->entry (and_action (&initgsmUsart, at ("ATE0\r\n")))
+                ->transition (SET_OPERATING_MODE)->when (&ok)->then (&delay);
 
-        m->state (SET_OPERATING_MODE)->entry (at ("AT+CWMODE_DEF=1\r\n"))
-                ->transition (RESET_BOARD)->when (&ok)->then (&delay);
-
-        m->state (RESET_BOARD)->entry (at ("AT+RST\r\n"))
-                ->transition (VERIFY_CONNECTED_ACCESS_POINT)->when (eq ("ready"))->then (&delay);
+        // mode of operation. 1 Means "Station"
+        m->state (SET_OPERATING_MODE)->entry (at ("AT+CWMODE_CUR=1\r\n"))
+                ->transition (VERIFY_CONNECTED_ACCESS_POINT)->when (&ok)->then (&delay);
 
         m->state (VERIFY_CONNECTED_ACCESS_POINT)->entry (and_action (at ("AT+CWJAP?\r\n"), &delay))
-                ->transition (CHECK_MY_IP)->when (like ("%" SSID "%"))->then (&delay)
+                ->transition (CHECK_MY_IP)->when (anded (like ("%" SSID "%"), &ok))->then (&delay)
                 ->transition (LIST_ACCESS_POINTS)->when (anded (eq ("AT+CWJAP?"), beginsWith ("busy")))->then (delayMs (5000))
+                ->transition (LIST_ACCESS_POINTS)->when (anded (eq ("No AP"), &ok))
                 ->transition (LIST_ACCESS_POINTS)->when (&alwaysTrue);
 
         m->state (CHECK_MY_IP)->entry (at ("AT+CIFSR\r\n"))
-                ->transition (SET_MULTI_CONNECTION_MODE)->when (like ("%.%.%.%"))->then (&delay)
+                ->transition (SET_MULTI_CONNECTION_MODE)->when (anded (like ("%.%.%.%"), &ok))->then (&delay)
                 ->transition (LIST_ACCESS_POINTS)->when (&error)->then (&delay);
 
         m->state (LIST_ACCESS_POINTS)->entry (at ("AT+CWLAP\r\n"))
-                ->transition (CONNECT_TO_ACCESS_POINT)->when (like ("%" SSID "%"))->then (&delay);
+                ->transition (CONNECT_TO_ACCESS_POINT)->when (anded (like ("%" SSID "%"), &ok))->then (&delay);
 
         m->state (CONNECT_TO_ACCESS_POINT)->entry (at ("AT+CWJAP=\"" SSID "\",\"" PASS "\"\r\n"))
                 ->transition (VERIFY_CONNECTED_ACCESS_POINT)->when (&ok)->then (&delay);
 
-        m->state (SET_MULTI_CONNECTION_MODE)->entry (at ("AT+CIPMUX=1\r\n"))
-                ->transition (CONNECT_TO_SERVER)->when (anded (eq ("AT+CIPMUX=1"), &ok))->then (&delay);
+        // CIPMUX=0 means single connection, 1 means multiple.
+        m->state (SET_MULTI_CONNECTION_MODE)->entry (at ("AT+CIPMUX=0\r\n"))
+                ->transition (IDLE)->when (&ok)->then (&delay);
 
-//        m->state (CLOSE_AND_RECONNECT)->entry (and_action (at ("AT+CIPCLOSE=0\r\n"), &delay))
-//                ->transition (CONNECT_TO_SERVER)->when(&alwaysTrue)->then (&delay);
+        m->state (IDLE, StateFlags::SUPPRESS_GLOBAL_TRANSITIONS)->transition (CONNECT_TO_SERVER)->when (eq ("_CONN"))->defer (0, true);
 
-        m->state (CONNECT_TO_SERVER)->entry (at ("AT+CIPSTART=0,\"TCP\",\"192.168.0.29\",1883\r\n"))
-                ->transition (NETWORK_ECHO_OFF)->when (anded (like ("%,CONNECT"), &ok))->then (&delay)
-                ->transition (NETWORK_ECHO_OFF)->when (anded (eq ("ALREADY CONNECTED"), eq ("ERROR")))->then (&delay);
+        m->state (CONNECT_TO_SERVER)->entry (at ("AT+CIPSTART=\"TCP\",\"192.168.0.31\",1883\r\n"))
+                ->transition (NETWORK_BEGIN_SEND)->when (anded (eq ("CONNECT"), &ok))->then (&delay)
+                ->transition (NETWORK_BEGIN_SEND)->when (anded (eq ("ALREADY CONNECTED"), eq ("ERROR")))->then (&delay);
 
-        // Wyłącz ECHO podczas wysyłania danych.
-        m->state (NETWORK_ECHO_OFF)->entry (and_action (at ("ATE0\r\n"), &delay))
-                ->transition (NETWORK_BEGIN_SEND)->when (&alwaysTrue);
+        m->state (NETWORK_BEGIN_SEND)->entry (at ("AT+CIPMODE=1\r\n"))->exit (&delay)
+                ->transition (NETWORK_PREPARE_SEND)->when (&ok);
 
-        m->state (NETWORK_BEGIN_SEND)->entry (&delay)->exit (&delay)
-                ->transition (NETWORK_BEGIN_SEND)->whenf ([this] (string const &) { return dataToSendBuffer.size() == 0 ; })
-                ->transition (NETWORK_PREPARE_SEND)->when (&alwaysTrue);
+        m->state (NETWORK_PREPARE_SEND)->entry (at ("AT+CIPSEND\r\n"))->exit (&delay)
+                ->transition (NETWORK_SEND)->when (beginsWith (">"))
+                ->transition (NETWORK_SEND)->when (&ok);
 
-        static uint32_t bytesToSendInSendStage = 0;
-        // Łapie odpowiedź z poprzedniego stanu, czyli max liczbę bajtów i wysyła komendę CIPSEND=<obliczona liczba B>
-        static SendNetworkAction prepareAction (&dataToSendBuffer, SendNetworkAction::STAGE_PREPARE, &bytesToSendInSendStage);
-        static IntegerCondition bytesToSendZero ((int *)&bytesToSendInSendStage, IntegerCondition<string>::EQ, 0);
-        m->state (NETWORK_PREPARE_SEND)->entry (and_action (&prepareAction, &delay))
-                ->transition (NETWORK_BEGIN_SEND)->when (&bytesToSendZero)
-                ->transition (NETWORK_SEND)->when (&ok)
-                ->transition (CONNECT_TO_SERVER)->when (&alwaysTrue)->then (&longDelay);
+        static SendTransparentAction sendTransparentAction (dataToSendBuffer);
+        m->state (NETWORK_SEND)->entry (&sendTransparentAction)
+                ->transition(LEAVE_TRANSPARENT)->when (eq ("_CLOSE"))->defer (0, true)
+                ->transition(NETWORK_SEND)->when (&alwaysTrue)->then (&delay);
 
-        // Ile razy wykonaliśmy cykl NETWORK_ACK_CHECK -> NETWORK_ACK_CHECK_PARSE (oczekiwanie na ACK danych).
-//        static uint8_t ackQueryRetryNo = 0;
-        static SendNetworkAction sendAction (&dataToSendBuffer, SendNetworkAction::STAGE_SEND, &bytesToSendInSendStage);
-//        static IntegerAction resetRetry ((int *)&ackQueryRetryNo, IntegerAction::CLEAR);
-//        static IntegerAction incRetry ((int *)&ackQueryRetryNo, IntegerAction::INC);
-        m->state (NETWORK_SEND)->entry (&sendAction)
-                ->transition (NETWORK_DECLARE_READ)->when (/*anded (*/eq ("SEND OK")/*, eq ("CLOSED"))*/)
-                ->transition (CANCEL_SEND)->when (msPassed (TCP_SEND_DATA_DELAY_MS, &gsmTimeCounter))
-                ->transition (CONNECT_TO_SERVER)->when (ored (ored (&error, eq ("CLOSED")), ored (eq ("SEND FAIL"), eq ("+PDP: DEACT"))))->then (&longDelay);
+        m->state (LEAVE_TRANSPARENT)->entry (and_action (and_action (&longDelay, at ("+++")), &longDelay))
+                ->transition (NETWORK_DISCONNECT)->when (&alwaysTrue);
 
-        static SendNetworkAction declareAction (&dataToSendBuffer, SendNetworkAction::STAGE_DECLARE, reinterpret_cast <uint32_t *> (&bytesToSendInSendStage));
-        m->state (NETWORK_DECLARE_READ)->entry (&declareAction)
-                ->transition (NETWORK_ECHO_ON)->when (&alwaysTrue);
-
-        // Wyłącz ECHO podczas wysyłania danych.
-        m->state (NETWORK_ECHO_ON)->entry (at ("ATE1\r\n"))
-                ->transition (CONNECT_TO_SERVER)->when (&alwaysTrue);
+        m->state (NETWORK_DISCONNECT)->entry(at ("AT+CIPCLOSE\r\n"))->transition(IDLE)->when (&alwaysTrue);
 
         /* clang-format on */
 }
 
 /*****************************************************************************/
 
-int Esp8266::send (int connectionNumber, uint8_t *data, size_t len) { dataToSendBuffer.store (data, len); }
+int Esp8266::send (uint8_t *data, size_t len) { return dataToSendBuffer.store (data, len); }
 
 /*****************************************************************************/
 
-bool Esp8266::connect (const char *address, uint16_t port) {}
+bool Esp8266::connect (const char *address, uint16_t port)
+{
+        {
+                InterruptLock<CortexMInterruptControl> lock;
+
+                if (!getEventQueue ().push_back ()) {
+                        return false;
+                }
+        }
+
+        string &ev = getEventQueue ().back ();
+        ev = "_CONN";
+        return true;
+}
 
 /*****************************************************************************/
 
-void Esp8266::disconnect (int connectionId) {}
+void Esp8266::disconnect ()
+{
+        {
+                InterruptLock<CortexMInterruptControl> lock;
+
+                if (!getEventQueue ().push_back ()) {
+                        return;
+                }
+        }
+
+        string &ev = getEventQueue ().back ();
+        ev = "_CLOSE";
+}
+
+/*****************************************************************************/
+
+bool Esp8266::isApConnected () const
+{
+        uint8_t l = machine.getCurrentStateLabel ();
+        return isTcpConnected () || l == NETWORK_BEGIN_SEND || l == NETWORK_PREPARE_SEND || l == NETWORK_SEND || l == LEAVE_TRANSPARENT;
+}
+
+/*****************************************************************************/
+
+bool Esp8266::isTcpConnected () const
+{
+        uint8_t l = machine.getCurrentStateLabel ();
+        return l == NETWORK_BEGIN_SEND || l == NETWORK_PREPARE_SEND || l == NETWORK_SEND || l == LEAVE_TRANSPARENT;
+}
+
+/*****************************************************************************/
+
+bool Esp8266::isSending () const { return (machine.getCurrentStateLabel () == NETWORK_SEND && dataToSendBuffer.size () > 0); }

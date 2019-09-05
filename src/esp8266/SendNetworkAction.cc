@@ -15,6 +15,7 @@
 
 extern Usart *modemUsart;
 
+#if 0
 bool SendNetworkAction::run (const string &)
 {
 #ifndef UNIT_TEST
@@ -104,4 +105,35 @@ uint32_t SendNetworkAction::parseCipsendRespoinse (const char *input)
 
         // Wg dokumentacji BG96 to jest zawszze 1460
         return 1460;
+}
+
+#endif
+
+bool SendTransparentAction::run (const string &)
+{
+
+        /*
+         * Wysyłanie zadeklarowanej w poprzednim kroku liczby bajtów.
+         */
+        //        if (*bytesToSendInSendStage == 0) {
+        //                return true;
+        //        }
+
+        // debug->log (GSM_SENT_TO_SERVER_B, GSM_SENT_TO_SERVER_B_T, bytesToSendInSendStage);
+        // gsmObject->sendBuffer (*bytesToSendInSendStage);
+
+        uint8_t *partA, *partB;
+        size_t lenA, lenB;
+        outputBuffer.retrieve (&partA, &lenA, &partB, &lenB, 2048);
+
+        if (partA && lenA) {
+                modemUsart->transmit (partA, lenA);
+        }
+
+        if (partB && lenB) {
+                modemUsart->transmit (partB, lenB);
+        }
+
+        outputBuffer.declareReadAll ();
+        return true;
 }

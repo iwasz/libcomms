@@ -17,7 +17,7 @@
 /**
  * @brief The InitUsartAction class
  */
-template <typename EventT> class UsartAction : public Action<EventT> {
+template <typename EventT = LIB_STATE_MACHINE_DEFAULT_EVENT_TYPE> class UsartAction : public Action<EventT> {
 public:
         using EventType = EventT;
 

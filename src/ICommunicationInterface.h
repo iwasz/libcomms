@@ -6,9 +6,7 @@
  *  ~~~~~~~~~                                                               *
  ****************************************************************************/
 
-#ifndef ICOMMUNICATIONINTERFACE_H
-#define ICOMMUNICATIONINTERFACE_H
-
+#pragma once
 #include <cstdint>
 #include <cstdlib>
 
@@ -34,14 +32,11 @@ struct ICommunicationInterface {
 
         /// TCP connection
         virtual bool connect (const char *address, uint16_t port) = 0;
-        virtual void disconnect (int connectionId) = 0;
-        virtual int send (int connectionId, uint8_t *data, size_t len) = 0;
-        virtual void run () = 0;
+        virtual void disconnect () = 0;
+        virtual int send (uint8_t *data, size_t len) = 0;
 
         void setCallback (Callback *c) { callback = c; }
 
 protected:
         Callback *callback;
 };
-
-#endif // ICOMMUNICATIONINTERFACE_H

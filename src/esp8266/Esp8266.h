@@ -27,7 +27,7 @@ protected:
 };
 
 /**
- * @brief The Bg96 class
+ * @brief The ESP8266 class
  * TODO Do not CWLAP if already connected. ESP connects on its own when known AP is in range.
  * TODO Do not connect to AP as well if already connected (CWJAP disconnects and connects again in this situation).
  * TODO The addres we are connecting to is hardcoded. Api should have connect (returns ID/socket whatever) and disconnect like all normal APIS
@@ -37,12 +37,17 @@ protected:
 class Esp8266 : public WifiCard {
 public:
         Esp8266 (Usart &u);
-        virtual ~Esp8266 () override = default;
+        ~Esp8266 () override = default;
 
-        int send (int connectionNumber, uint8_t *data, size_t len) override;
-        bool connect (const char *address, uint16_t port);
-        void disconnect (int connectionId);
-        void run () override { machine.run (); }
+        int send (uint8_t *data, size_t len) override;
+        bool connect (const char *address, uint16_t port) override;
+        void disconnect () override;
+
+        bool isApConnected () const;
+        bool isTcpConnected () const;
+        bool isSending () const;
+
+        virtual void run () { machine.run (); }
 
         /*---------------------------------------------------------------------------*/
 
