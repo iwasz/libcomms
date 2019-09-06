@@ -111,29 +111,31 @@ uint32_t SendNetworkAction::parseCipsendRespoinse (const char *input)
 
 bool SendTransparentAction::run (const string &)
 {
+        modemUsart->transmit (sendBuffer.data (), sendBuffer.size ());
+        sendBuffer.clear ();
 
-        /*
-         * Wysyłanie zadeklarowanej w poprzednim kroku liczby bajtów.
-         */
-        //        if (*bytesToSendInSendStage == 0) {
-        //                return true;
+        //        /*
+        //         * Wysyłanie zadeklarowanej w poprzednim kroku liczby bajtów.
+        //         */
+        //        //        if (*bytesToSendInSendStage == 0) {
+        //        //                return true;
+        //        //        }
+
+        //        // debug->log (GSM_SENT_TO_SERVER_B, GSM_SENT_TO_SERVER_B_T, bytesToSendInSendStage);
+        //        // gsmObject->sendBuffer (*bytesToSendInSendStage);
+
+        //        uint8_t *partA, *partB;
+        //        size_t lenA, lenB;
+        //        sendBuffer.retrieve (&partA, &lenA, &partB, &lenB, 2048);
+
+        //        if (partA && lenA) {
+        //                modemUsart->transmit (partA, lenA);
         //        }
 
-        // debug->log (GSM_SENT_TO_SERVER_B, GSM_SENT_TO_SERVER_B_T, bytesToSendInSendStage);
-        // gsmObject->sendBuffer (*bytesToSendInSendStage);
+        //        if (partB && lenB) {
+        //                modemUsart->transmit (partB, lenB);
+        //        }
 
-        uint8_t *partA, *partB;
-        size_t lenA, lenB;
-        outputBuffer.retrieve (&partA, &lenA, &partB, &lenB, 2048);
-
-        if (partA && lenA) {
-                modemUsart->transmit (partA, lenA);
-        }
-
-        if (partB && lenB) {
-                modemUsart->transmit (partB, lenB);
-        }
-
-        outputBuffer.declareReadAll ();
+        //        sendBuffer.declareReadAll ();
         return true;
 }

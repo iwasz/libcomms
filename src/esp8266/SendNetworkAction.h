@@ -8,6 +8,7 @@
 
 #pragma once
 #include "Action.h"
+#include "Types.h"
 
 class CircularBuffer;
 
@@ -45,15 +46,15 @@ class SendTransparentAction : public Action<> {
 public:
         static constexpr size_t MAX_BYTES_SEND = 2048;
 
-        SendTransparentAction (CircularBuffer &g) : outputBuffer (g) {}
+        SendTransparentAction (buffer &sendBuffer) : sendBuffer (sendBuffer) {}
         SendTransparentAction (SendTransparentAction const &) = delete;
         SendTransparentAction &operator= (SendTransparentAction const &) = delete;
         SendTransparentAction (SendTransparentAction const &&) = delete;
         SendTransparentAction &operator= (SendTransparentAction const &&) = delete;
 
         ~SendTransparentAction () override = default;
-        bool run (string const &) override;
+        bool run (string const &event) override;
 
 private:
-        CircularBuffer &outputBuffer; // To są bajty do wysłania.
+        buffer &sendBuffer; // To są bajty do wysłania.
 };

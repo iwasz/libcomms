@@ -62,17 +62,15 @@ enum ModemState : size_t {
 
 /*****************************************************************************/
 
-Esp8266::Esp8266 (Usart &u) : WifiCard (u), dataToSendBuffer (2048 * 3), responseSink (machine.getEventQueue ())
+Esp8266::Esp8266 (Usart &u) : WifiCard (u), usartSink (machine.getEventQueue (), receiveBuffer)
 {
         modemUsart = &u;
-        u.setSink (&responseSink);
+        u.setSink (&usartSink);
 
         static StringCondition ok ("OK");
         static StringCondition okA (">OK");
         static bool alwaysTrueB = true;
-        //        static bool alwaysFalseB = false;
         static BoolCondition alwaysTrue (&alwaysTrueB);
-        //        static WatchdogRefreshAction wdgRefreshAction (&watchdog);
 
         static DelayAction delay (100);
         static DelayAction longDelay (1000);
@@ -95,7 +93,7 @@ Esp8266::Esp8266 (Usart &u) : WifiCard (u), dataToSendBuffer (2048 * 3), respons
         m->transition (RESET_BOARD)->when (&softResetDelay);
 
         // Reset.
-        m->state (RESET_BOARD, StateFlags::INITIAL)->entry (and_action (and_action (&longDelay, and_action (at ("+++"), &longDelay)), and_action (at ("AT+RST\r\n"), &deinitgsmUsart)))
+        m->state (RESET_BOARD, StateFlags::INITIAL)->entry (and_action (&deinitgsmUsart, and_action (&longDelay, and_action (at ("+++"), and_action (&longDelay, at ("AT+RST\r\n"))))))
                 ->transition (INIT)->when (&alwaysTrue)->then (&longDelay);
 
         // Echo off
@@ -106,7 +104,7 @@ Esp8266::Esp8266 (Usart &u) : WifiCard (u), dataToSendBuffer (2048 * 3), respons
         m->state (SET_OPERATING_MODE)->entry (at ("AT+CWMODE_CUR=1\r\n"))
                 ->transition (VERIFY_CONNECTED_ACCESS_POINT)->when (&ok)->then (&delay);
 
-        m->state (VERIFY_CONNECTED_ACCESS_POINT)->entry (and_action (at ("AT+CWJAP?\r\n"), &delay))
+        m->state (VERIFY_CONNECTED_ACCESS_POINT)->entry (and_action (at ("AT+CWJAP_DEF?\r\n"), &delay))
                 ->transition (CHECK_MY_IP)->when (anded (like ("%" SSID "%"), &ok))->then (&delay)
                 ->transition (LIST_ACCESS_POINTS)->when (anded (eq ("AT+CWJAP?"), beginsWith ("busy")))->then (delayMs (5000))
                 ->transition (LIST_ACCESS_POINTS)->when (anded (eq ("No AP"), &ok))
@@ -119,32 +117,32 @@ Esp8266::Esp8266 (Usart &u) : WifiCard (u), dataToSendBuffer (2048 * 3), respons
         m->state (LIST_ACCESS_POINTS)->entry (at ("AT+CWLAP\r\n"))
                 ->transition (CONNECT_TO_ACCESS_POINT)->when (anded (like ("%" SSID "%"), &ok))->then (&delay);
 
-        m->state (CONNECT_TO_ACCESS_POINT)->entry (at ("AT+CWJAP=\"" SSID "\",\"" PASS "\"\r\n"))
+        m->state (CONNECT_TO_ACCESS_POINT)->entry (at ("AT+CWJAP_DEF=\"" SSID "\",\"" PASS "\"\r\n"))
                 ->transition (VERIFY_CONNECTED_ACCESS_POINT)->when (&ok)->then (&delay);
 
         // CIPMUX=0 means single connection, 1 means multiple.
         m->state (SET_MULTI_CONNECTION_MODE)->entry (at ("AT+CIPMUX=0\r\n"))
                 ->transition (IDLE)->when (&ok)->then (&delay);
 
-        m->state (IDLE, StateFlags::SUPPRESS_GLOBAL_TRANSITIONS)->transition (CONNECT_TO_SERVER)->when (eq ("_CONN"))->defer (0, true);
-
-        m->state (CONNECT_TO_SERVER)->entry (at ("AT+CIPSTART=\"TCP\",\"192.168.0.31\",1883\r\n"))
-                ->transition (NETWORK_BEGIN_SEND)->when (anded (eq ("CONNECT"), &ok))->then (&delay)
-                ->transition (NETWORK_BEGIN_SEND)->when (anded (eq ("ALREADY CONNECTED"), eq ("ERROR")))->then (&delay);
+        m->state (IDLE, StateFlags::SUPPRESS_GLOBAL_TRANSITIONS)->transition (NETWORK_BEGIN_SEND)->when (eq ("_CONN"))->defer (0, true);
 
         m->state (NETWORK_BEGIN_SEND)->entry (at ("AT+CIPMODE=1\r\n"))->exit (&delay)
-                ->transition (NETWORK_PREPARE_SEND)->when (&ok);
+                ->transition (CONNECT_TO_SERVER)->when (&ok);
 
-        m->state (NETWORK_PREPARE_SEND)->entry (at ("AT+CIPSEND\r\n"))->exit (&delay)
-                ->transition (NETWORK_SEND)->when (beginsWith (">"))
-                ->transition (NETWORK_SEND)->when (&ok);
+        m->state (CONNECT_TO_SERVER)->entry (at ("AT+CIPSTART=\"TCP\",\"192.168.0.31\",1883\r\n"))
+                ->transition (NETWORK_SEND)->when (anded (eq ("CONNECT"), &ok))->then (and_action (func ([this] (string const &) { usartSink.setUseRawData(true); return true; }), &delay))
+                ->transition (NETWORK_SEND)->when (anded (eq ("ALREADY CONNECTED"), eq ("ERROR")))->then (and_action (func ([this] (string const &) { usartSink.setUseRawData(true); return true; }), &delay));
 
-        static SendTransparentAction sendTransparentAction (dataToSendBuffer);
-        m->state (NETWORK_SEND)->entry (&sendTransparentAction)
-                ->transition(LEAVE_TRANSPARENT)->when (eq ("_CLOSE"))->defer (0, true)
-                ->transition(NETWORK_SEND)->when (&alwaysTrue)->then (&delay);
+//        m->state (NETWORK_PREPARE_SEND)->entry (at ("AT+CIPSEND\r\n"))->exit (&delay)
+//                ->transition (NETWORK_SEND)->when (beginsWith (">"))
+//                ->transition (NETWORK_SEND)->when (&ok);
 
-        m->state (LEAVE_TRANSPARENT)->entry (and_action (and_action (&longDelay, at ("+++")), &longDelay))
+        static SendTransparentAction sendTransparentAction (sendBuffer);
+        m->state (NETWORK_SEND)->entry (and_action (&sendTransparentAction, delayMs(20)))
+                ->transition (LEAVE_TRANSPARENT)->when (eq ("_CLOSE"))->defer (0, true)
+                ->transition (NETWORK_SEND)->when (&alwaysTrue);
+
+        m->state (LEAVE_TRANSPARENT)->entry (and_action (and_action (and_action (&longDelay, at ("+++")), &longDelay), func ([this] (string const &) { usartSink.setUseRawData(false); return true; })))
                 ->transition (NETWORK_DISCONNECT)->when (&alwaysTrue);
 
         m->state (NETWORK_DISCONNECT)->entry(at ("AT+CIPCLOSE\r\n"))->transition(IDLE)->when (&alwaysTrue);
@@ -154,7 +152,15 @@ Esp8266::Esp8266 (Usart &u) : WifiCard (u), dataToSendBuffer (2048 * 3), respons
 
 /*****************************************************************************/
 
-int Esp8266::send (uint8_t *data, size_t len) { return dataToSendBuffer.store (data, len); }
+int Esp8266::send (gsl::span<uint8_t> const &data)
+{
+        if (sendBuffer.size () + data.size () > sendBuffer.max_size ()) {
+                return 0;
+        }
+
+        std::copy (data.cbegin (), data.cend (), std::back_inserter (sendBuffer));
+        return data.size ();
+}
 
 /*****************************************************************************/
 
@@ -207,4 +213,4 @@ bool Esp8266::isTcpConnected () const
 
 /*****************************************************************************/
 
-bool Esp8266::isSending () const { return (machine.getCurrentStateLabel () == NETWORK_SEND && dataToSendBuffer.size () > 0); }
+bool Esp8266::isSending () const { return (machine.getCurrentStateLabel () == NETWORK_SEND && sendBuffer.size () > 0); }

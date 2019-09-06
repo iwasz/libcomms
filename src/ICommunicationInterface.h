@@ -9,6 +9,7 @@
 #pragma once
 #include <cstdint>
 #include <cstdlib>
+#include <gsl/gsl>
 
 /**
  * For now I think this interface will represent a TCP capable device with AT-commands interface
@@ -33,7 +34,7 @@ struct ICommunicationInterface {
         /// TCP connection
         virtual bool connect (const char *address, uint16_t port) = 0;
         virtual void disconnect () = 0;
-        virtual int send (uint8_t *data, size_t len) = 0;
+        virtual int send (gsl::span<uint8_t> const &) = 0;
 
         void setCallback (Callback *c) { callback = c; }
 
