@@ -133,10 +133,6 @@ Esp8266::Esp8266 (Usart &u) : WifiCard (u), usartSink (machine.getEventQueue (),
                 ->transition (NETWORK_SEND)->when (anded (eq ("CONNECT"), &ok))->then (and_action (func ([this] (string const &) { usartSink.setUseRawData(true); return true; }), &delay))
                 ->transition (NETWORK_SEND)->when (anded (eq ("ALREADY CONNECTED"), eq ("ERROR")))->then (and_action (func ([this] (string const &) { usartSink.setUseRawData(true); return true; }), &delay));
 
-//        m->state (NETWORK_PREPARE_SEND)->entry (at ("AT+CIPSEND\r\n"))->exit (&delay)
-//                ->transition (NETWORK_SEND)->when (beginsWith (">"))
-//                ->transition (NETWORK_SEND)->when (&ok);
-
         static SendTransparentAction sendTransparentAction (sendBuffer);
         m->state (NETWORK_SEND)->entry (and_action (&sendTransparentAction, delayMs(20)))
                 ->transition (LEAVE_TRANSPARENT)->when (eq ("_CLOSE"))->defer (0, true)
@@ -154,7 +150,7 @@ Esp8266::Esp8266 (Usart &u) : WifiCard (u), usartSink (machine.getEventQueue (),
 
 int Esp8266::send (gsl::span<uint8_t> const &data)
 {
-        if (sendBuffer.size () + data.size () > sendBuffer.max_size ()) {
+        if (sendBuffer.size () + data.size () > sendBuffer.max_size () || !isTcpConnected ()) {
                 return 0;
         }
 
