@@ -61,6 +61,7 @@ enum MachineState : size_t {
         NETWORK_ACK_CHECK,
         NETWORK_ACK_CHECK_PARSE,
         GNSS_TURN_ON,
+        GNSS_TEST,
         GNSS_STATE_CHECK,
         CONTROL_WAIT_FOR_CONNECT,
         AT_QBTPWR,
@@ -139,7 +140,7 @@ Mc60Modem::Mc60Modem (Usart &u, Gpio &pwrKey, Gpio &status, Callback *c, bool gp
                 ->transition (INIT)->when (anded <BinaryEvent>(msPassed<BinaryEvent> (100, &gsmTimeCounter), &ok));
 
         /*---------------------------------------------------------------------------*/
-        /*--USTANAWIANIE-POŁĄCZENIA--------------------------------------------------*/
+        /*---------------------------------------------------------------------------*/
         /*---------------------------------------------------------------------------*/
 
         if (gpsOn) {
@@ -148,15 +149,20 @@ Mc60Modem::Mc60Modem (Usart &u, Gpio &pwrKey, Gpio &status, Callback *c, bool gp
 
             m->state (GNSS_STATE_CHECK)->entry (at ("AT+QGNSSC?\r\n"))
                     ->transition (GNSS_TURN_ON)->when (eq<BinaryEvent> ("+QGNSSC: 0"))->then (&delay)
-                    ->transition (PIN_STATUS_CHECK)->when (eq<BinaryEvent> ("+QGNSSC: 1"))->then (&delay);
+                    ->transition (GNSS_TEST)->when (eq<BinaryEvent> ("+QGNSSC: 1"))->then (&delay);
 
             m->state (GNSS_TURN_ON)->entry (at ("AT+QGNSSC=1\r\n"))
                     ->transition (GNSS_STATE_CHECK)->when (beginsWith<BinaryEvent> ("+CME ERROR"))
-                    ->transition (PIN_STATUS_CHECK)->when (anded <BinaryEvent> (&ok, eq<BinaryEvent> ("AT+QGNSSC=1")))->then (&delay);
+                    ->transition (GNSS_STATE_CHECK)->when (anded <BinaryEvent> (&ok, eq<BinaryEvent> ("AT+QGNSSC=1")))->then (&delay);
+
+            m->state (GNSS_TEST)->entry (at ("AT+QGNSSRD?\r\n"))
+                    ->transition (GNSS_STATE_CHECK)->when (beginsWith<BinaryEvent> ("+CME ERROR"))
+                    ->transition (AT_QBTPWR)->when (anded <BinaryEvent> (&ok, beginsWith<BinaryEvent> ("+QGNSSRD:")))->then (&delay);
+
         }
         else {
             m->state (INIT)->entry (at ("AT\r\n"))
-                    ->transition (PIN_STATUS_CHECK)->when (anded<BinaryEvent> (eq<BinaryEvent> ("AT"), &ok))->then (&delay);
+                    ->transition (AT_QBTPWR)->when (anded<BinaryEvent> (eq<BinaryEvent> ("AT"), &ok))->then (&delay);
         }
 
         /*---------------------------------------------------------------------------*/
@@ -206,8 +212,8 @@ Mc60Modem::Mc60Modem (Usart &u, Gpio &pwrKey, Gpio &status, Callback *c, bool gp
          */
         // TODO Tu powinno być jakieś logowanie tej siły sygnału.
         m->state (SIGNAL_QUALITY_CHECK)->entry (at ("AT+CSQ\r\n"))
-                ->transition (SIGNAL_QUALITY_CHECK)->when (anded<BinaryEvent> (like<BinaryEvent> ("+CSQ: 99,%"), &ok))->then (&longDelay)
-                ->transition (REGISTRATION_CHECK)->when (anded<BinaryEvent> (beginsWith<BinaryEvent> ("+CSQ:"), &ok))->then (&delay);
+                ->transition (SIGNAL_QUALITY_CHECK)->when (anded<BinaryEvent> (like<BinaryEvent> ("+CSQ: 99,%"), &ok))->then (&longDelay);
+                //->transition (REGISTRATION_CHECK)->when (anded<BinaryEvent> (beginsWith<BinaryEvent> ("+CSQ:"), &ok))->then (&delay);
 
         /*
          * Check Network Registration Status response:
