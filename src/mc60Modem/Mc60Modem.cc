@@ -296,13 +296,14 @@ Mc60Modem::Mc60Modem (Usart &u, Gpio &pwrKey, Gpio &status, Callback *c, bool gp
          * Połącz się z serwerem (połączenie TCP).
          */
         m->state (CONNECT_TO_SERVER)->entry (func<BinaryEvent>  ([&u] (BinaryEvent const &e) {
-                    static char qiopenCommand[QIOPEN_BUF_LEN];
-                    const char *serverAddress = e.argStr;
-                    const uint16_t serverPort = e.argInt1;
-                     snprintf (qiopenCommand, QIOPEN_BUF_LEN, "AT+QIOPEN=\"TCP\",\"%s\",\"%d\"\r\n", serverAddress, serverPort);
-                    u.transmit (qiopenCommand);
-                    return true;
-                }))
+                static char qiopenCommand[QIOPEN_BUF_LEN];
+                const char *serverAddress = e.argStr;
+                const uint16_t serverPort = e.argInt1;
+                snprintf (qiopenCommand, QIOPEN_BUF_LEN, "AT+QIOPEN=\"TCP\",\"%s\",\"%d\"\r\n", serverAddress, serverPort);
+                u.transmit (qiopenCommand);
+                debug->print(qiopenCommand);
+                return true;
+        }))
                 ->transition (NETWORK_GPS_USART_ECHO_OFF)->when (ored<BinaryEvent> (eq<BinaryEvent> ("CONNECT OK"), eq<BinaryEvent> ("ALREADY CONNECT")))->then (and_action (delayMs<BinaryEvent> (1000), func<BinaryEvent> ([this] (BinaryEvent const &) {
                     if (callback) {
                         callback->onConnected (0);
