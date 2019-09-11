@@ -120,7 +120,7 @@ Mc60Modem::Mc60Modem (Usart &u, Gpio &pwrKey, Gpio &status, Callback *c, bool gp
                 ->transition (RESET_STAGE_POWER_ON)->when (&statusLow)
                 /*->transition (RESET_STAGE_DECIDE)->when (&hardResetDelay)*/;
 
-        m->state (RESET_STAGE_POWER_OFF)->entry (gsmPwrCycleOff)
+        m->state (RESET_STAGE_POWER_OFF,  StateFlags::SUPPRESS_GLOBAL_TRANSITIONS)->entry (gsmPwrCycleOff)
                 ->transition (RESET_STAGE_POWER_ON)->when (&statusLow)->then (delayMs<BinaryEvent> (500))
                 ->transition (RESET_STAGE_DECIDE)->when (&hardResetDelay);
 
@@ -212,8 +212,9 @@ Mc60Modem::Mc60Modem (Usart &u, Gpio &pwrKey, Gpio &status, Callback *c, bool gp
          */
         // TODO Tu powinno być jakieś logowanie tej siły sygnału.
         m->state (SIGNAL_QUALITY_CHECK)->entry (at ("AT+CSQ\r\n"))
-                ->transition (SIGNAL_QUALITY_CHECK)->when (anded<BinaryEvent> (like<BinaryEvent> ("+CSQ: 99,%"), &ok))->then (&longDelay);
-                //->transition (REGISTRATION_CHECK)->when (anded<BinaryEvent> (beginsWith<BinaryEvent> ("+CSQ:"), &ok))->then (&delay);
+                ->transition (SIGNAL_QUALITY_CHECK)->when (anded<BinaryEvent> (like<BinaryEvent> ("+CSQ: 99,%"), &ok))->then (&longDelay)
+                ->transition (REGISTRATION_CHECK)->when (anded<BinaryEvent> (beginsWith<BinaryEvent> ("+CSQ:"), &ok))->then (&delay);
+                //->transition (SIGNAL_QUALITY_CHECK)->when (&ok)->then (&longDelay);
 
         /*
          * Check Network Registration Status response:
