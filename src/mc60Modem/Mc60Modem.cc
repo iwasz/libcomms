@@ -254,7 +254,8 @@ Mc60Modem::Mc60Modem (Usart &u, Gpio &pwrKey, Gpio &status, Callback *c)
                 ->transition (CONTROL_WAIT_FOR_CONNECT)->when (anded<BinaryEvent> (eq<BinaryEvent> ("AT+QINDI=2"), &ok))->then (&delay);
 
         m->state (CONTROL_WAIT_FOR_CONNECT)
-                ->transition (CHECK_CONNECTION)->when (eq<BinaryEvent> ("_CONN", StripInput::DONT_STRIP, InputRetention::RETAIN_INPUT))->defer (0, true);
+                // ->transition (CHECK_CONNECTION)->when (eq<BinaryEvent> ("_CONN", StripInput::DONT_STRIP, InputRetention::RETAIN_INPUT))->defer (0, true);
+                ->transition (CHECK_CONNECTION)->whenf ([this] (BinaryEvent const &/*e*/) { return !address.empty() && port > 0; });
 
         /*---------------------------------------------------------------------------*/
         /*--Connecting---------------------------------------------------------------*/
@@ -271,11 +272,9 @@ Mc60Modem::Mc60Modem (Usart &u, Gpio &pwrKey, Gpio &status, Callback *c)
         /*
          * Połącz się z serwerem (połączenie TCP).
          */
-        m->state (CONNECT_TO_SERVER)->entry (func<BinaryEvent>  ([&u] (BinaryEvent const &e) {
+        m->state (CONNECT_TO_SERVER)->entry (func<BinaryEvent> ([&u, this] (BinaryEvent const &/*e*/) {
                 static char qiopenCommand[QIOPEN_BUF_LEN];
-                const char *serverAddress = e.argStr;
-                const uint16_t serverPort = e.argInt1;
-                snprintf (qiopenCommand, QIOPEN_BUF_LEN, "AT+QIOPEN=\"TCP\",\"%s\",\"%d\"\r\n", serverAddress, serverPort);
+                snprintf (qiopenCommand, QIOPEN_BUF_LEN, "AT+QIOPEN=\"TCP\",\"%s\",\"%d\"\r\n", address.c_str(), port);
                 u.transmit (qiopenCommand);
                 debug->print(qiopenCommand);
                 return true;
@@ -391,7 +390,7 @@ Mc60Modem::Mc60Modem (Usart &u, Gpio &pwrKey, Gpio &status, Callback *c)
 
         m->state (NETWORK_ACK_CHECK_PARSE)->entry (&queryAck)->exit (&longDelay)
                 ->transition (CLOSE_AND_RECONNECT)->when (&disconnected)
-                ->transition (CANCEL_SEND)->when (&retryLimitReached)
+                ->transition (CANCEL_SEND)->when (&retryLimitReached)->thenf ([&ackQueryRetryNo] (BinaryEvent const &) { ackQueryRetryNo = 0; return true; })
                 ->transition (NETWORK_DECLARE_READ)->when (&allAcked)->then (&resetRetry)
                 ->transition (NETWORK_ACK_CHECK)->when (&alwaysTrue)->then (&incRetry);
 
@@ -451,40 +450,32 @@ void Mc60Modem::power (bool on)
 
 bool Mc60Modem::connect (const char *address, uint16_t port)
 {
-        int firstEmptyConnectionNumber = -1;
+        //        {
+        //                InterruptLock<CortexMInterruptControl> lock;
 
-        // TODO throw away and focus on single connections only
-        // Find empty connectionId. BG96 can establish only 12 connections.
-        for (int i = 0; i < MAX_CONNECTIONS; ++i) {
-                if (connectionState[i] == NOT_CONNECTED) {
-                        firstEmptyConnectionNumber = i;
-                        break;
-                }
-        }
+        //                if (!getEventQueue ().push_back ()) {
+        //                        return false;
+        //                }
+        //        }
 
-        if (firstEmptyConnectionNumber < 0) {
-                return false;
-        }
-
-        {
-                InterruptLock<CortexMInterruptControl> lock;
-
-                if (!getEventQueue ().push_back ()) {
-                        return false;
-                }
-        }
-
-        BinaryEvent &ev = getEventQueue ().back ();
-        ev = { '_', 'C', 'O', 'N', 'N' };
-        ev.argInt2 = firstEmptyConnectionNumber;
-        ev.argInt1 = port;
-        ev.argStr = address;
+        //        BinaryEvent &ev = getEventQueue ().back ();
+        //        ev = { '_', 'C', 'O', 'N', 'N' };
+        //        ev.argInt2 = 0;
+        //        ev.argInt1 = port;
+        //        ev.argStr = address;
+        this->address = string{ address };
+        this->port = port;
         return true;
 }
 
 /*****************************************************************************/
 
-void Mc60Modem::disconnect (int connectionId) {}
+void Mc60Modem::disconnect (int /*connectionId*/)
+{
+        // TODO to tak na prawdę nie rozłącza, tylko nie pozwoli na re-connect
+        this->address = string{};
+        this->port = 0;
+}
 
 /*****************************************************************************/
 

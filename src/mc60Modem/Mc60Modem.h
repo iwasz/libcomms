@@ -66,9 +66,6 @@ public:
         /// Ile razy (co sekundę) sprawdzamy czy dostaliśmy ACK podczas wysyłania danych telemetrycznych.
         static constexpr size_t QUERY_ACK_COUNT_LIMIT = 8;
 
-        /// According to BG96 datasheet : Integer type. The socket service index. The range is 0-11
-        static constexpr size_t MAX_CONNECTIONS = 12;
-
         enum ConnectionState : uint8_t { NOT_CONNECTED, TCP_CONNECTED };
 
 protected:
@@ -82,7 +79,8 @@ private:
 
         FixedLineSink<StateMachine<BinaryEvent>::EventQueue, BinaryEvent> modemResponseSink;
         BufferedCharacterSink<128> bufferedSink;
-        ConnectionState connectionState[MAX_CONNECTIONS] = { NOT_CONNECTED };
+        string address;
+        uint16_t port = 0;
 };
 
 #endif // BG96_H
