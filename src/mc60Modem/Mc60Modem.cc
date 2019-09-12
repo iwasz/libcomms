@@ -72,7 +72,7 @@ enum MachineState : size_t {
 
 /*****************************************************************************/
 
-Mc60Modem::Mc60Modem (Usart &u, Gpio &pwrKey, Gpio &status, Callback *c, bool gpsOn)
+Mc60Modem::Mc60Modem (Usart &u, Gpio &pwrKey, Gpio &status, Callback *c)
     : AbstractModem (u, pwrKey, status, c),
       dataToSendBuffer (2048),
       modemResponseSink (machine.getEventQueue ()),
@@ -82,7 +82,6 @@ Mc60Modem::Mc60Modem (Usart &u, Gpio &pwrKey, Gpio &status, Callback *c, bool gp
         u.setSink (&bufferedSink);
 
         static StringCondition<BinaryEvent> ok ("OK");
-        static StringCondition<BinaryEvent> okA (">OK");
         static DelayAction<BinaryEvent> delay (100);
         static DelayAction<BinaryEvent> longDelay (1000);
         static LikeCondition<BinaryEvent> error ("%ERROR%");
@@ -139,31 +138,8 @@ Mc60Modem::Mc60Modem (Usart &u, Gpio &pwrKey, Gpio &status, Callback *c, bool gp
         m->state (GPS_USART_ECHO_ON)->entry (at ("ATE1\r\n"))
                 ->transition (INIT)->when (anded <BinaryEvent>(msPassed<BinaryEvent> (100, &gsmTimeCounter), &ok));
 
-        /*---------------------------------------------------------------------------*/
-        /*---------------------------------------------------------------------------*/
-        /*---------------------------------------------------------------------------*/
-
-        if (gpsOn) {
-            m->state (INIT)->entry (at ("AT\r\n"))
-                    ->transition (GNSS_STATE_CHECK)->when (anded<BinaryEvent> (eq<BinaryEvent> ("AT"), &ok))->then (&delay);
-
-            m->state (GNSS_STATE_CHECK)->entry (at ("AT+QGNSSC?\r\n"))
-                    ->transition (GNSS_TURN_ON)->when (eq<BinaryEvent> ("+QGNSSC: 0"))->then (&delay)
-                    ->transition (GNSS_TEST)->when (eq<BinaryEvent> ("+QGNSSC: 1"))->then (&delay);
-
-            m->state (GNSS_TURN_ON)->entry (at ("AT+QGNSSC=1\r\n"))
-                    ->transition (GNSS_STATE_CHECK)->when (beginsWith<BinaryEvent> ("+CME ERROR"))
-                    ->transition (GNSS_STATE_CHECK)->when (anded <BinaryEvent> (&ok, eq<BinaryEvent> ("AT+QGNSSC=1")))->then (&delay);
-
-            m->state (GNSS_TEST)->entry (at ("AT+QGNSSRD?\r\n"))
-                    ->transition (GNSS_STATE_CHECK)->when (beginsWith<BinaryEvent> ("+CME ERROR"))
-                    ->transition (AT_QBTPWR)->when (anded <BinaryEvent> (&ok, beginsWith<BinaryEvent> ("+QGNSSRD:")))->then (&delay);
-
-        }
-        else {
-            m->state (INIT)->entry (at ("AT\r\n"))
-                    ->transition (AT_QBTPWR)->when (anded<BinaryEvent> (eq<BinaryEvent> ("AT"), &ok))->then (&delay);
-        }
+        m->state (INIT)->entry (at ("AT\r\n"))
+                ->transition (AT_QBTPWR)->when (anded<BinaryEvent> (eq<BinaryEvent> ("AT"), &ok))->then (&delay);
 
         /*---------------------------------------------------------------------------*/
         /* BLE                                                                       */

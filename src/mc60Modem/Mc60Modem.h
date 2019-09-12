@@ -28,7 +28,7 @@
  */
 class Mc60Modem : public AbstractModem {
 public:
-        Mc60Modem (Usart &u, Gpio &pwrKeyPin, Gpio &statusPin, Callback *c = nullptr, bool gpsOn = true);
+        Mc60Modem (Usart &u, Gpio &pwrKeyPin, Gpio &statusPin, Callback *c = nullptr);
         virtual ~Mc60Modem () override = default;
 
         /*-ICommunicationInterface---------------------------------------------------*/
