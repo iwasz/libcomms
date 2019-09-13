@@ -73,10 +73,7 @@ enum MachineState : size_t {
 /*****************************************************************************/
 
 Mc60Modem::Mc60Modem (Usart &u, Gpio &pwrKey, Gpio &status, Callback *c)
-    : AbstractModem (u, pwrKey, status, c),
-      dataToSendBuffer (2048),
-      modemResponseSink (machine.getEventQueue ()),
-      bufferedSink (modemResponseSink)
+    : AbstractModem (u, pwrKey, status, c), modemResponseSink (machine.getEventQueue ()), bufferedSink (modemResponseSink)
 {
         modemUsart = &u;
         u.setSink (&bufferedSink);
@@ -152,7 +149,8 @@ Mc60Modem::Mc60Modem (Usart &u, Gpio &pwrKey, Gpio &status, Callback *c)
                 ->transition (AT_QBTGATSREG)->when (anded<BinaryEvent> (beginsWith<BinaryEvent> ("AT+QBTVISB"), &ok))->then (&delay);
 
         m->state (AT_QBTGATSREG)->entry (at ("AT+QBTGATSREG=1,\"ABC2\"\r\n"))
-                ->transition (AT_QBTGATSL)->when (anded<BinaryEvent> (beginsWith<BinaryEvent> ("AT+QBTGATSREG"), &ok))->then (&delay);
+                ->transition (AT_QBTGATSL)->when (anded<BinaryEvent> (beginsWith<BinaryEvent> ("AT+QBTGATSREG"), &ok))->then (&delay)
+                ->transition (PIN_STATUS_CHECK)->when (beginsWith<BinaryEvent> ("+CME ERROR:"));
 
         m->state (AT_QBTGATSL)->entry (at ("AT+QBTGATSL=\"ABC2\",1\r\n"))
                 ->transition (PIN_STATUS_CHECK)->when (anded<BinaryEvent> (beginsWith<BinaryEvent> ("AT+QBTGATSL"), &ok))->then (&delay);
@@ -356,7 +354,7 @@ Mc60Modem::Mc60Modem (Usart &u, Gpio &pwrKey, Gpio &status, Callback *c)
          */
         static int bytesToSendInSendStage = 0;
         // Łapie odpowiedź z poprzedniego stanu, czyli max liczbę bajtów i wysyła komendę CIPSEND=<obliczona liczba B>
-        static SendNetworkAction prepareAction (&dataToSendBuffer, SendNetworkAction::STAGE_PREPARE, &bytesToSendInSendStage);
+        static SendNetworkAction prepareAction (dataToSendBuffer, SendNetworkAction::STAGE_PREPARE, &bytesToSendInSendStage);
         static IntegerCondition<BinaryEvent> bytesToSendZero ((int *)&bytesToSendInSendStage, IntegerCondition<BinaryEvent>::EQ, 0);
 
         m->state (NETWORK_PREPARE_SEND)->entry (&prepareAction)
@@ -367,7 +365,7 @@ Mc60Modem::Mc60Modem (Usart &u, Gpio &pwrKey, Gpio &status, Callback *c)
 
         // Ile razy wykonaliśmy cykl NETWORK_ACK_CHECK -> NETWORK_ACK_CHECK_PARSE (oczekiwanie na ACK danych).
         static int ackQueryRetryNo = 0;
-        static SendNetworkAction sendAction (&dataToSendBuffer, SendNetworkAction::STAGE_SEND, &bytesToSendInSendStage);
+        static SendNetworkAction sendAction (dataToSendBuffer, SendNetworkAction::STAGE_SEND, &bytesToSendInSendStage);
         static IntegerAction<BinaryEvent> resetRetry ((int *)&ackQueryRetryNo, IntegerActionType::CLEAR);
         static IntegerAction<BinaryEvent> incRetry ((int *)&ackQueryRetryNo, IntegerActionType::INC);
 
@@ -396,7 +394,7 @@ Mc60Modem::Mc60Modem (Usart &u, Gpio &pwrKey, Gpio &status, Callback *c)
 
         // static SendNetworkAction declareAction (&outputBuffer, SendNetworkAction::STAGE_DECLARE, reinterpret_cast <uint32_t *> (&acked));
         // TODO nie ackuje mi!!!
-        static SendNetworkAction declareAction (&dataToSendBuffer, SendNetworkAction::STAGE_DECLARE, &bytesToSendInSendStage);
+        static SendNetworkAction declareAction (dataToSendBuffer, SendNetworkAction::STAGE_DECLARE, &bytesToSendInSendStage);
         m->state (NETWORK_DECLARE_READ)->entry (&declareAction)
                 ->transition (CLOSE_AND_RECONNECT)->when (&disconnected)
                 ->transition (CHECK_CONNECTION)->when (&alwaysTrue);
@@ -479,4 +477,12 @@ void Mc60Modem::disconnect (int /*connectionId*/)
 
 /*****************************************************************************/
 
-int Mc60Modem::send (int connectionNumber, uint8_t *data, size_t len) { return dataToSendBuffer.store (data, len); }
+int Mc60Modem::send (const gsl::span<uint8_t> &data)
+{
+        if (dataToSendBuffer.size () + data.size () > dataToSendBuffer.max_size () /*|| !isTcpConnected ()*/) {
+                return 0;
+        }
+
+        std::copy (data.cbegin (), data.cend (), std::back_inserter (dataToSendBuffer));
+        return data.size ();
+}

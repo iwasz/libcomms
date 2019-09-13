@@ -8,7 +8,6 @@
 
 #include "SendNetworkAction.h"
 #include "Usart.h"
-#include "collection/CircularBuffer.h"
 #include <cstring>
 
 extern Usart *modemUsart;
@@ -26,8 +25,8 @@ bool SendNetworkAction::run (const EventType &event)
                         *bytesToSendInSendStage = GSM_MAX_BYTES_SEND;
                 }
 
-                if (gsmBuffer->size () < *bytesToSendInSendStage) {
-                        *bytesToSendInSendStage = gsmBuffer->size ();
+                if (dataToSendBuffer.size () < *bytesToSendInSendStage) {
+                        *bytesToSendInSendStage = dataToSendBuffer.size ();
                 }
 
                 if (*bytesToSendInSendStage == 0) {
@@ -50,27 +49,13 @@ bool SendNetworkAction::run (const EventType &event)
                         return true;
                 }
 
-                // debug->log (GSM_SENT_TO_SERVER_B, GSM_SENT_TO_SERVER_B_T, bytesToSendInSendStage);
-                // gsmObject->sendBuffer (*bytesToSendInSendStage);
-
-                uint8_t *partA, *partB;
-                size_t lenA, lenB;
-                gsmBuffer->retrieve (&partA, &lenA, &partB, &lenB, *bytesToSendInSendStage);
-
-                if (partA && lenA) {
-                        modemUsart->transmit (partA, lenA);
-                }
-
-                if (partB && lenB) {
-                        modemUsart->transmit (partB, lenB);
-                }
+                modemUsart->transmit (dataToSendBuffer.data (), dataToSendBuffer.size ());
         }
         /*
          * Zdjęcie wysłanej liczby bajtów z bufora.
          */
         else if (stage == STAGE_DECLARE) {
-                gsmBuffer->declareRead (*bytesToSendInSendStage);
-                // debug->log (GSM_DECLARED_SEND_B, GSM_DECLARED_SEND_B_T, bytesToSendInSendStage);
+                dataToSendBuffer.clear ();
         }
 
         return true;

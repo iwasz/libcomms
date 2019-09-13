@@ -6,11 +6,10 @@
  *  ~~~~~~~~~                                                               *
  ****************************************************************************/
 
-#ifndef ICOMMUNICATIONINTERFACE_H
-#define ICOMMUNICATIONINTERFACE_H
-
+#pragma once
 #include <cstdint>
 #include <cstdlib>
+#include <gsl/gsl>
 
 /**
  * For now I think this interface will represent a TCP capable device with AT-commands interface
@@ -35,7 +34,7 @@ struct ICommunicationInterface {
         /// TCP connection
         virtual bool connect (const char *address, uint16_t port) = 0;
         virtual void disconnect (int connectionId) = 0;
-        virtual int send (int connectionId, uint8_t *data, size_t len) = 0;
+        virtual int send (gsl::span<uint8_t> const &data) = 0;
         virtual void run () = 0;
 
         void setCallback (Callback *c) { callback = c; }
@@ -43,5 +42,3 @@ struct ICommunicationInterface {
 protected:
         Callback *callback;
 };
-
-#endif // ICOMMUNICATIONINTERFACE_H

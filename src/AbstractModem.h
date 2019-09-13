@@ -22,7 +22,8 @@ public:
             : ICommunicationInterface (c), usart (u), pwrKeyPin (pwrKey), statusPin (status)
         {
         }
-        virtual ~AbstractModem () = default;
+
+        ~AbstractModem () override = default;
         virtual void power (bool on) = 0;
 
 protected:

@@ -6,13 +6,10 @@
  *  ~~~~~~~~~                                                               *
  ****************************************************************************/
 
-#ifndef PREPARE_SEND_NETWORK_ACTION_H
-#define PREPARE_SEND_NETWORK_ACTION_H
-
+#pragma once
 #include "Action.h"
 #include "BinaryEvent.h"
-
-class CircularBuffer;
+#include "Types.h"
 
 /**
  * @brief Określa jaki jest rozmiar danych do wysłania i deklaruje ile chce wysłać.
@@ -21,10 +18,10 @@ class SendNetworkAction : public Action<BinaryEvent> {
 public:
         enum Stage { STAGE_PREPARE, STAGE_SEND, STAGE_DECLARE };
 
-        SendNetworkAction (CircularBuffer *g, Stage s, int *b) : gsmBuffer (g), stage (s), bytesToSendInSendStage (b) {}
+        SendNetworkAction (Buffer &g, Stage s, int *b) : dataToSendBuffer (g), stage (s), bytesToSendInSendStage (b) {}
 
-        virtual ~SendNetworkAction () {}
-        bool run (EventType const &event);
+        ~SendNetworkAction () override = default;
+        bool run (EventType const &event) override;
 
         /**
          * Ile bajtów maksymalnie wysyłać za jednym razem (jeden CIPSEND). Jeśli modem ma mniejszy bufor,
@@ -41,9 +38,7 @@ private:
         static uint32_t parseCipsendRespoinse (EventType const &event);
 
 private:
-        CircularBuffer *gsmBuffer; // To są bajty do wysłania.
+        Buffer &dataToSendBuffer; // To są bajty do wysłania.
         Stage stage;
         int *bytesToSendInSendStage;
 };
-
-#endif // SendNetworkAction_H
