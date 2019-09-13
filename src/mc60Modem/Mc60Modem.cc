@@ -431,13 +431,19 @@ void Mc60Modem::power (bool on)
                 {
                         InterruptLock<CortexMInterruptControl> lock;
 
-                        if (!getEventQueue ().push_back ()) {
+                        if (getEventQueue ().full ()) {
                                 return;
                         }
+
+                        getEventQueue ().push_back (BinaryEvent{ '_', 'O', 'F', 'F' });
+
+                        //                        if (!getEventQueue ().push_back ()) {
+                        //                                return;
+                        //                        }
                 }
 
-                BinaryEvent &ev = getEventQueue ().back ();
-                ev = { '_', 'O', 'F', 'F' };
+                //                BinaryEvent &ev = getEventQueue ().back ();
+                //                ev = { '_', 'O', 'F', 'F' };
         }
         else {
                 machine.reset ();
