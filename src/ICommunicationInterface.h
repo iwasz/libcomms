@@ -24,7 +24,7 @@ struct ICommunicationInterface {
                 // TODO add "ICommunicationInterface &owner" to every method as a first argument for convenience.
                 virtual void onConnected (int connectionId) = 0;
                 virtual void onDisconnected (int connectionId) = 0;
-                virtual void onData (uint8_t const *data, size_t len) = 0;
+                virtual void onData (gsl::span<uint8_t const> const &data) = 0;
                 virtual void onError (Error error) = 0;
         };
 

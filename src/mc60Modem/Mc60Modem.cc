@@ -311,7 +311,7 @@ Mc60Modem::Mc60Modem (Usart &u, Gpio &pwrKey, Gpio &status, Callback *c)
         m->state (NETWORK_RECEIVE)->exit (&delay)
                 ->transition (NETWORK_BEGIN_SEND)->when (notEmpty<BinaryEvent> (InputRetention::RETAIN_INPUT))->thenf ([this] (BinaryEvent const &input) {
                     if (callback) {
-                        callback->onData (input.data (), input.size ());
+                        callback->onData (input);
                     }
                     return true;
                 });
