@@ -7,15 +7,18 @@
  ****************************************************************************/
 
 #pragma once
-#include <etl/vector.h>
+//#include <etl/vector.h>
+#include <cstdint>
+#include <vector>
 //#include <variant>
 
-static constexpr size_t BINARY_EVENT_MAX_SIZE = 128;
-using UintVector = etl::vector<uint8_t, BINARY_EVENT_MAX_SIZE>;
+// static constexpr size_t BINARY_EVENT_MAX_SIZE = 128;
+// using UintVector = etl::vector<uint8_t, BINARY_EVENT_MAX_SIZE>;
+using UintVector = std::vector<uint8_t>;
 
 struct BinaryEvent : public UintVector {
         using UintVector::UintVector;
-        static constexpr size_t MAX_SIZE = BINARY_EVENT_MAX_SIZE;
+        //static constexpr size_t MAX_SIZE = BINARY_EVENT_MAX_SIZE;
 
         const char *argStr = nullptr;
         int argInt1 = 0;

@@ -6,14 +6,11 @@
  *  ~~~~~~~~~                                                               *
  ****************************************************************************/
 
-#ifndef QUERY_RECV_NETWORK_ACTION_H
-#define QUERY_RECV_NETWORK_ACTION_H
-
+#pragma once
 #include "Action.h"
 #include "BinaryEvent.h"
 #include "Condition.h"
 #include "Debug.h"
-// #include <charconv>
 #include <cstdio>
 #include <cstring>
 
@@ -151,9 +148,6 @@ template <typename IntT, typename EventT> bool ParseRecvLengthCondition<IntT, Ev
         }
 
         std::advance (i, 1);
-        // TODO Unasfe :(
-        const char *first = reinterpret_cast<const char *> (i);
-        const char *last = reinterpret_cast<const char *> (event.cend ());
 
 #if 0
         if (auto [p, ec] = std::from_chars (first, last, *bytesReceived); ec != std::errc{}) {
@@ -161,18 +155,18 @@ template <typename IntT, typename EventT> bool ParseRecvLengthCondition<IntT, Ev
                 Error_Handler ();
         }
 #else
-        const char *input = reinterpret_cast<const char *> (i);
+        // const char *input = reinterpret_cast<const char *> (*i);
         constexpr size_t MAX_BUF = 10;
-        char buf[MAX_BUF];
-        int size = std::distance (i, event.cend ());
+        std::array<char, MAX_BUF> buf{};
+        size_t size = std::distance (i, event.cend ());
 
         if (size >= MAX_BUF) {
                 Error_Handler ();
         }
 
-        memcpy (buf, input, size);
-        buf[size] = '\0';
-        *bytesReceived = strtoul (buf, nullptr, 10);
+        std::copy (i, event.cend (), buf.begin ());
+        buf.at (size) = '\0';
+        *bytesReceived = strtoul (buf.data (), nullptr, 10);
 #endif
 
 #if 0
@@ -183,4 +177,3 @@ template <typename IntT, typename EventT> bool ParseRecvLengthCondition<IntT, Ev
         return *bytesReceived > 0;
 }
 
-#endif // QueryAckAction_H
