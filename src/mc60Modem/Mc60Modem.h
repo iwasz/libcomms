@@ -64,7 +64,7 @@ protected:
 private:
         Buffer dataToSendBuffer; // Bufor na dane do wysłania przez TCP/IP za pośrednictwem modemu
         StateMachine<BinaryEvent> machine;
-        FixedLineSink<StateMachine<BinaryEvent>::EventQueue, BinaryEvent> modemResponseSink;
+        LineSink2<StateMachine<BinaryEvent>::EventQueue, BinaryEvent> modemResponseSink;
         BufferedCharacterSink<BUFFERED_SINK_SIZE> bufferedSink; // Bufor na dane TCP/IP przychodzące z serwera. MC60 może zwrócić na raz 1500B.
         string address;                                         // Cache adresu, żeby reconnect.
         uint16_t port = 0;                                      // Cache portu, żeby reconnect.

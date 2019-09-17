@@ -149,13 +149,6 @@ template <typename IntT, typename EventT> bool ParseRecvLengthCondition<IntT, Ev
 
         std::advance (i, 1);
 
-#if 0
-        if (auto [p, ec] = std::from_chars (first, last, *bytesReceived); ec != std::errc{}) {
-                // Error parsing response
-                Error_Handler ();
-        }
-#else
-        // const char *input = reinterpret_cast<const char *> (*i);
         constexpr size_t MAX_BUF = 10;
         std::array<char, MAX_BUF> buf{};
         size_t size = std::distance (i, event.cend ());
@@ -167,7 +160,6 @@ template <typename IntT, typename EventT> bool ParseRecvLengthCondition<IntT, Ev
         std::copy (i, event.cend (), buf.begin ());
         buf.at (size) = '\0';
         *bytesReceived = strtoul (buf.data (), nullptr, 10);
-#endif
 
 #if 0
         debug->print ("bytesReceived: ");

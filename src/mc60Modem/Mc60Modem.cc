@@ -27,6 +27,7 @@ enum MachineState : size_t {
         RESET_STAGE_POWER_OFF,
         RESET_STAGE_POWER_ON,
         INIT,
+        IPR,
         PIN_STATUS_CHECK,
         ENTER_PIN,
         GET_SIM_IMSI,
@@ -136,7 +137,10 @@ Mc60Modem::Mc60Modem (Usart &u, Gpio &pwrKey, Gpio &status, Callback *c)
                 ->transition (INIT)->when (anded <BinaryEvent>(msPassed<BinaryEvent> (100, &gsmTimeCounter), &ok));
 
         m->state (INIT)->entry (at ("AT\r\n"))
-                ->transition (AT_QBTPWR)->when (anded<BinaryEvent> (eq<BinaryEvent> ("AT"), &ok))->then (&delay);
+                ->transition (IPR)->when (anded<BinaryEvent> (eq<BinaryEvent> ("AT"), &ok))->then (&delay);
+
+        m->state (IPR)->entry (at ("AT+IPR=?\r\n"))
+                ->transition (AT_QBTPWR)->when (anded<BinaryEvent> (beginsWith<BinaryEvent> ("AT+IPR"), &ok))->then (&delay);
 
         /*---------------------------------------------------------------------------*/
         /* BLE                                                                       */
@@ -263,9 +267,9 @@ Mc60Modem::Mc60Modem (Usart &u, Gpio &pwrKey, Gpio &status, Callback *c)
                 ->transition (CONNECT_TO_SERVER)->when(anded<BinaryEvent> (beginsWith<BinaryEvent> ("AT+QICLOSE"), &ok))->then (delayMs<BinaryEvent> (1000));
 
         // Kiedy nie ma połączenia, to ta komenda nic nie zwraca. ROTFL.
-        m->state (CHECK_CONNECTION)->entry (and_action<BinaryEvent> (at ("AT+QISTATE\r\n"), delayMs<BinaryEvent> (50)))
-                ->transition (NETWORK_GPS_USART_ECHO_OFF)->when (beginsWith<BinaryEvent> ("STATE: CONNECT OK"))
-                ->transition (CONNECT_TO_SERVER)->when (&alwaysTrue);
+        m->state (CHECK_CONNECTION)->entry (at ("AT+QISTATE\r\n"))
+                ->transition (NETWORK_GPS_USART_ECHO_OFF)->when (anded (beginsWith<BinaryEvent> ("STATE: CONNECT OK"), &ok))
+                ->transition (CONNECT_TO_SERVER)->when (anded (beginsWith<BinaryEvent> ("STATE:"), &ok));
 
         /*
          * Połącz się z serwerem (połączenie TCP).
@@ -277,7 +281,7 @@ Mc60Modem::Mc60Modem (Usart &u, Gpio &pwrKey, Gpio &status, Callback *c)
                 debug->print(qiopenCommand);
                 return true;
         }))
-                ->transition (NETWORK_GPS_USART_ECHO_OFF)->when (ored<BinaryEvent> (eq<BinaryEvent> ("CONNECT OK"), eq<BinaryEvent> ("ALREADY CONNECT")))->then (and_action (delayMs<BinaryEvent> (1000), func<BinaryEvent> ([this] (BinaryEvent const &) {
+                ->transition (NETWORK_GPS_USART_ECHO_OFF)->when (anded (&ok, ored<BinaryEvent> (eq<BinaryEvent> ("CONNECT OK"), eq<BinaryEvent> ("ALREADY CONNECT"))))->then (and_action (delayMs<BinaryEvent> (1000), func<BinaryEvent> ([this] (BinaryEvent const &) {
                     if (callback) {
                         callback->onConnected (0);
                      }
@@ -305,7 +309,7 @@ Mc60Modem::Mc60Modem (Usart &u, Gpio &pwrKey, Gpio &status, Callback *c)
                     modemResponseSink.receiveBytes (bytesReceived);
                     return true;
                 })
-                ->transition (NETWORK_BEGIN_SEND)->when (&recvDelay)
+                ->transition (NETWORK_BEGIN_SEND)->when (anded (eq <BinaryEvent> ("AT+QIRD=0,1,0,64"), &ok))
                 ->transition (CLOSE_AND_RECONNECT)->when (&error);
 
         m->state (NETWORK_RECEIVE)->exit (&delay)
