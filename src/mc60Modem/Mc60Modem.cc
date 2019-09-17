@@ -137,10 +137,10 @@ Mc60Modem::Mc60Modem (Usart &u, Gpio &pwrKey, Gpio &status, Callback *c)
                 ->transition (INIT)->when (anded <BinaryEvent>(msPassed<BinaryEvent> (100, &gsmTimeCounter), &ok));
 
         m->state (INIT)->entry (at ("AT\r\n"))
-                ->transition (IPR)->when (anded<BinaryEvent> (eq<BinaryEvent> ("AT"), &ok))->then (&delay);
+                ->transition (AT_QBTPWR)->when (anded<BinaryEvent> (eq<BinaryEvent> ("AT"), &ok))->then (&delay);
 
-        m->state (IPR)->entry (at ("AT+IPR=?\r\n"))
-                ->transition (AT_QBTPWR)->when (anded<BinaryEvent> (beginsWith<BinaryEvent> ("AT+IPR"), &ok))->then (&delay);
+        // m->state (IPR)->entry (at ("AT+IPR=?\r\n"))
+        //         ->transition (AT_QBTPWR)->when (anded<BinaryEvent> (beginsWith<BinaryEvent> ("AT+IPR"), &ok))->then (&delay);
 
         /*---------------------------------------------------------------------------*/
         /* BLE                                                                       */
@@ -332,17 +332,17 @@ Mc60Modem::Mc60Modem (Usart &u, Gpio &pwrKey, Gpio &status, Callback *c)
         m->state (NETWORK_BEGIN_SEND)->exit (&delay)
                 ->transition (CLOSE_AND_RECONNECT)->when (&disconnected)
                 ->transition (NETWORK_BEGIN_RECEIVE)->whenf ([this] (BinaryEvent const &) { return dataToSendBuffer.size() == 0 ; })
-                ->transition (NETWORK_QUERY_MODEM_OUTPUT_BUFFER_MAX_LEN)->when (&alwaysTrue);
+                ->transition (NETWORK_PREPARE_SEND)->when (&alwaysTrue);
 
         /*
          * Jeszcze nie wiem czemu, ale czasem zwraca ten max rozmiar bajtów modemie jako 0. Próbuję się wtedy ponownie połączyć
          * z serwerem. To dziwna sprawa. Po kilku sprawdzeniach AT+CIPSEND? dostaję odpowiedź 0! Myślałem że to wtedy gdy serwer
          * się rozłącza, ale jednak chyba wcześniej.
          */
-        m->state (NETWORK_QUERY_MODEM_OUTPUT_BUFFER_MAX_LEN)->entry (at ("AT+QISEND=?\r\n"))
-                ->transition (CLOSE_AND_RECONNECT)->when (&disconnected)
-                ->transition (CHECK_CONNECTION)->when (beginsWith<BinaryEvent> ("+QISEND: 0"))
-                ->transition (NETWORK_PREPARE_SEND)->when (anded<BinaryEvent> (beginsWith<BinaryEvent> ("+QISEND: <length>"), &ok));
+//        m->state (NETWORK_QUERY_MODEM_OUTPUT_BUFFER_MAX_LEN)->entry (at ("AT+QISEND=?\r\n"))
+//                ->transition (CLOSE_AND_RECONNECT)->when (&disconnected)
+//                ->transition (CHECK_CONNECTION)->when (beginsWith<BinaryEvent> ("+QISEND: 0"))
+//                ->transition (NETWORK_PREPARE_SEND)->when (anded<BinaryEvent> (beginsWith<BinaryEvent> ("+QISEND: <length>"), &ok));
 
         /*
          * Uwaga, wysłanie danych jest zaimplementowane w 2 stanach. W NETWORK_PREPARE_SEND idzie USARTem komenda AT+CIPSEND=<bbb>, a w

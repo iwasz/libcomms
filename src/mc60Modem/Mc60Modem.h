@@ -15,7 +15,7 @@
 #include "Types.h"
 #include "Usart.h"
 #include "character/BufferedCharacterSink.h"
-#include "character/FixedLineSink.h"
+#include "character/LineSink.h"
 
 /**
  * Quectel Mc60 implementation.
@@ -64,7 +64,7 @@ protected:
 private:
         Buffer dataToSendBuffer; // Bufor na dane do wysłania przez TCP/IP za pośrednictwem modemu
         StateMachine<BinaryEvent> machine;
-        LineSink2<StateMachine<BinaryEvent>::EventQueue, BinaryEvent> modemResponseSink;
+        LineSink<StateMachine<BinaryEvent>::EventQueue, BinaryEvent> modemResponseSink;
         BufferedCharacterSink<BUFFERED_SINK_SIZE> bufferedSink; // Bufor na dane TCP/IP przychodzące z serwera. MC60 może zwrócić na raz 1500B.
         string address;                                         // Cache adresu, żeby reconnect.
         uint16_t port = 0;                                      // Cache portu, żeby reconnect.
