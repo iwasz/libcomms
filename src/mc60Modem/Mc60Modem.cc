@@ -111,7 +111,7 @@ Mc60Modem::Mc60Modem (Usart &u, Gpio &pwrKey, Gpio &status, Callback *c)
         static QirdiParseCondition <size_t, BinaryEvent> totalReceiveQirdiAction (&totalReceivedBytes);
         m->transition (GPRS_RESET)->when (&softResetDelay);
         m->transition (SHUT_DOWN_STAGE_START)->when (eq<BinaryEvent> ("_OFF"));
-        m->transition (NO_TRANSITION)->when (&totalReceiveQirdiAction)->thenf ([this] (BinaryEvent const & /*ev*/) { totalData.reserve(totalReceivedBytes); return true; });
+        m->transition (NO_TRANSITION, TransitionPriority::RUN_FIRST)->when (&totalReceiveQirdiAction)->thenf ([this] (BinaryEvent const & /*ev*/) { totalData.reserve(totalReceivedBytes); return true; });
 
         m->state (RESET_STAGE_DECIDE, StateFlags::INITIAL)->entry (/*and_action (&gpsReset,*/ and_action (&deinitgsmUsart, &delay))
                 ->transition (PIN_STATUS_CHECK)->when (beginsWith<BinaryEvent> ("RDY")) // To oznacza, że wcześniej nie było zasilania, czyli nowy start.
