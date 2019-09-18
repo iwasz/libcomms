@@ -7,6 +7,7 @@
  ****************************************************************************/
 
 #include "Mc60Modem.h"
+#include "QirdiParseAction.h"
 #include "QueryAckAction.h"
 #include "QueryRecvAction.h"
 #include "SendNetworkAction.h"
@@ -19,15 +20,15 @@
 Usart *modemUsart;
 
 // TODO !!! Mega wywalić, total hack.
-static int bytesReceived;
+static size_t bytesReceived;
 
 // It polutes the header file and the class body, so I put it here.
 enum MachineState : size_t {
+        NO_TRANSITION, // TODO dirty hack, remove
         RESET_STAGE_DECIDE,
         RESET_STAGE_POWER_OFF,
         RESET_STAGE_POWER_ON,
         INIT,
-        IPR,
         PIN_STATUS_CHECK,
         ENTER_PIN,
         GET_SIM_IMSI,
@@ -53,17 +54,16 @@ enum MachineState : size_t {
         GPS_USART_ECHO_ON,
         NETWORK_SEND,
         NETWORK_BEGIN_SEND,
+        NETWORK_CHECK_RECEIVE,
         NETWORK_BEGIN_RECEIVE,
         NETWORK_RECEIVE,
+        NETWORK_RECEIVE_NOTIFY,
         NETWORK_PREPARE_SEND,
         NETWORK_QUERY_MODEM_OUTPUT_BUFFER_MAX_LEN,
         NETWORK_GPS_USART_ECHO_OFF,
         NETWORK_DECLARE_READ,
         NETWORK_ACK_CHECK,
         NETWORK_ACK_CHECK_PARSE,
-        GNSS_TURN_ON,
-        GNSS_TEST,
-        GNSS_STATE_CHECK,
         CONTROL_WAIT_FOR_CONNECT,
         AT_QBTPWR,
         AT_QBTVISB,
@@ -108,8 +108,10 @@ Mc60Modem::Mc60Modem (Usart &u, Gpio &pwrKey, Gpio &status, Callback *c)
         /*---------------------------------------------------------------------------*/
         /* clang-format off */
 
+        static QirdiParseCondition <size_t, BinaryEvent> totalReceiveQirdiAction (&totalReceivedBytes);
         m->transition (GPRS_RESET)->when (&softResetDelay);
         m->transition (SHUT_DOWN_STAGE_START)->when (eq<BinaryEvent> ("_OFF"));
+        m->transition (NO_TRANSITION)->when (&totalReceiveQirdiAction)->thenf ([this] (BinaryEvent const & /*ev*/) { totalData.reserve(totalReceivedBytes); return true; });
 
         m->state (RESET_STAGE_DECIDE, StateFlags::INITIAL)->entry (/*and_action (&gpsReset,*/ and_action (&deinitgsmUsart, &delay))
                 ->transition (PIN_STATUS_CHECK)->when (beginsWith<BinaryEvent> ("RDY")) // To oznacza, że wcześniej nie było zasilania, czyli nowy start.
@@ -162,7 +164,7 @@ Mc60Modem::Mc60Modem (Usart &u, Gpio &pwrKey, Gpio &status, Callback *c)
         /*---------------------------------------------------------------------------*/
 
         m->state (PIN_STATUS_CHECK)->entry (at ("AT+CPIN?\r\n"))
-                ->transition (/*GET_SIM_IMSI*/SIGNAL_QUALITY_CHECK)->when (anded<BinaryEvent> (eq<BinaryEvent> ("+CPIN: READY"), &ok))->then (&delay)
+                ->transition (GET_SIM_IMSI)->when (anded<BinaryEvent> (eq<BinaryEvent> ("+CPIN: READY"), &ok))->then (&delay)
                 ->transition (PIN_STATUS_CHECK)->when (&error)->then (delayMs<BinaryEvent> (4000))
                 ->transition (ENTER_PIN)->when (anded<BinaryEvent> (eq<BinaryEvent> ("+CPIN: SIM PIN"), &ok))->then (&delay);
 
@@ -170,8 +172,8 @@ Mc60Modem::Mc60Modem (Usart &u, Gpio &pwrKey, Gpio &status, Callback *c)
                 ->transition (PIN_STATUS_CHECK)->when (anded<BinaryEvent> (beginsWith<BinaryEvent> ("AT+CPIN="), &ok))->then (&delay)
                 ->transition (PIN_STATUS_CHECK)->when (&error)->then (delayMs<BinaryEvent> (4000));
 
-//        m->state (GET_SIM_IMSI)->entry (at ("AT+CIMI\r\n"))
-//                ->transition (SIGNAL_QUALITY_CHECK)->when (&ok)->then (&delay);
+        m->state (GET_SIM_IMSI)->entry (at ("AT+CIMI\r\n"))
+                ->transition (SIGNAL_QUALITY_CHECK)->when (&ok)->then (&delay);
 
         /*
          * Check Signal Quality response:
@@ -290,7 +292,6 @@ Mc60Modem::Mc60Modem (Usart &u, Gpio &pwrKey, Gpio &status, Callback *c)
                 ->transition (CLOSE_AND_RECONNECT)->when (ored<BinaryEvent> (eq<BinaryEvent> ("CONNECT FAIL"), &error))->then(delayMs<BinaryEvent> (1000));
 
         static BeginsWithCondition<BinaryEvent> disconnected ("+QIURC: \"closed\",");
-//        static BeginsWithCondition<BinaryEvent> received ("+QIURC: \"recv\",1", StripInput::STRIP, InputRetention::RETAIN_INPUT);
 
         /*---------------------------------------------------------------------------*/
         /*--Data-reception-----------------------------------------------------------*/
@@ -298,25 +299,39 @@ Mc60Modem::Mc60Modem (Usart &u, Gpio &pwrKey, Gpio &status, Callback *c)
 
         // Wyłącz ECHO podczas wysyłania danych.
         m->state (NETWORK_GPS_USART_ECHO_OFF)->entry (at ("AT+QISDE=0\r\n"))
-                ->transition (NETWORK_BEGIN_RECEIVE)->when (/*anded (&configurationWasRead,*/ anded<BinaryEvent> (beginsWith<BinaryEvent> ("AT+QISDE=0"), &ok));
+                ->transition (NETWORK_CHECK_RECEIVE)->when (/*anded (&configurationWasRead,*/ anded<BinaryEvent> (beginsWith<BinaryEvent> ("AT+QISDE=0"), &ok));
 
-        static ParseRecvLengthCondition <int, BinaryEvent> parseRecvLenCondition (&bytesReceived);
+        static ParseRecvLengthCondition <size_t, BinaryEvent> parseRecvLenCondition (&bytesReceived);
         static TimePassedCondition<BinaryEvent> recvDelay (100, &gsmTimeCounter);
 
-        // TODO change this hardcoded 64
-        m->state (NETWORK_BEGIN_RECEIVE)->entry (at ("AT+QIRD=0,1,0,64\r\n"))
+        m->state (NETWORK_CHECK_RECEIVE)->
+                transition (NETWORK_RECEIVE_NOTIFY)->whenf ([this] (BinaryEvent const &/*ev*/) { return totalData.size ()>0 && totalData.size () >= totalReceivedBytes; })->
+                transition (NETWORK_BEGIN_RECEIVE)->whenf ([this] (BinaryEvent const &/*ev*/) { return totalReceivedBytes > 0; })->
+                transition (NETWORK_BEGIN_SEND)->when (&alwaysTrue);
+
+        m->state (NETWORK_BEGIN_RECEIVE)->entry (at ("AT+QIRD=0,1,0," MAX_MODEM_RECEIVE_BATCH_SIZE "\r\n"))
                 ->transition (NETWORK_RECEIVE)->when (&parseRecvLenCondition)->thenf ([this] (BinaryEvent const &) {
-                    modemResponseSink.receiveBytes (bytesReceived);
+                    modemResponseSink.receiveBytes (size_t (bytesReceived));
                     return true;
                 })
-                ->transition (NETWORK_BEGIN_SEND)->when (anded (eq <BinaryEvent> ("AT+QIRD=0,1,0,64"), &ok))
+                ->transition (NETWORK_BEGIN_SEND)->when (anded (eq <BinaryEvent> ("AT+QIRD=0,1,0," MAX_MODEM_RECEIVE_BATCH_SIZE), &ok))
                 ->transition (CLOSE_AND_RECONNECT)->when (&error);
 
         m->state (NETWORK_RECEIVE)->exit (&delay)
-                ->transition (NETWORK_BEGIN_SEND)->when (notEmpty<BinaryEvent> (InputRetention::RETAIN_INPUT))->thenf ([this] (BinaryEvent const &input) {
-                    if (callback) {
-                        callback->onData (input);
+                //->transition (NETWORK_CHECK_RECEIVE)->when (notEmpty<BinaryEvent> (InputRetention::RETAIN_INPUT))->thenf ([this] (BinaryEvent const &input) {
+                ->transition (NETWORK_CHECK_RECEIVE)->when (anded (len <BinaryEvent> (&bytesReceived, InputRetention::RETAIN_INPUT), &ok))->thenf ([this] (BinaryEvent const &input) {
+                    std::copy (input.cbegin (), input.cend (), std::back_inserter (totalData));
+                    return true;
+                });
+
+        m->state (NETWORK_RECEIVE_NOTIFY)->exit (&delay)
+                ->transition (NETWORK_BEGIN_SEND)->when (&alwaysTrue)->thenf ([this] (BinaryEvent const &/*input*/) {
+                    if (callback != nullptr) {
+                        callback->onData (totalData);
                     }
+
+                    totalData.clear();
+                    totalReceivedBytes = 0;
                     return true;
                 });
 
@@ -329,20 +344,11 @@ Mc60Modem::Mc60Modem (Usart &u, Gpio &pwrKey, Gpio &status, Callback *c)
          * co daje szansę na uruchomienie się maszyny GPS (bo jest INC_SYNCHRO). Jeśli są jakieś dane do wysłania,
          * to sprawdź ile max może przyjąć modem.
          */
+        static TimePassedCondition<BinaryEvent> waitForSendDelay (10 * 1000, &gsmTimeCounter);
         m->state (NETWORK_BEGIN_SEND)->exit (&delay)
                 ->transition (CLOSE_AND_RECONNECT)->when (&disconnected)
-                ->transition (NETWORK_BEGIN_RECEIVE)->whenf ([this] (BinaryEvent const &) { return dataToSendBuffer.size() == 0 ; })
-                ->transition (NETWORK_PREPARE_SEND)->when (&alwaysTrue);
-
-        /*
-         * Jeszcze nie wiem czemu, ale czasem zwraca ten max rozmiar bajtów modemie jako 0. Próbuję się wtedy ponownie połączyć
-         * z serwerem. To dziwna sprawa. Po kilku sprawdzeniach AT+CIPSEND? dostaję odpowiedź 0! Myślałem że to wtedy gdy serwer
-         * się rozłącza, ale jednak chyba wcześniej.
-         */
-//        m->state (NETWORK_QUERY_MODEM_OUTPUT_BUFFER_MAX_LEN)->entry (at ("AT+QISEND=?\r\n"))
-//                ->transition (CLOSE_AND_RECONNECT)->when (&disconnected)
-//                ->transition (CHECK_CONNECTION)->when (beginsWith<BinaryEvent> ("+QISEND: 0"))
-//                ->transition (NETWORK_PREPARE_SEND)->when (anded<BinaryEvent> (beginsWith<BinaryEvent> ("+QISEND: <length>"), &ok));
+                ->transition (NETWORK_PREPARE_SEND)->whenf ([this] (BinaryEvent const &) { return dataToSendBuffer.size() > 0 ; })
+                ->transition (NETWORK_BEGIN_SEND)->when (&waitForSendDelay); // Tylko po to, żeby nam się maszyna nie zresetowała
 
         /*
          * Uwaga, wysłanie danych jest zaimplementowane w 2 stanach. W NETWORK_PREPARE_SEND idzie USARTem komenda AT+CIPSEND=<bbb>, a w

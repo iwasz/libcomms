@@ -19,10 +19,6 @@
 
 /**
  * Quectel Mc60 implementation.
- *
- * TODO
- * - Rremove modem buffer size query : AT+QISEND=? because like most Quectel modems it returns "<length>"
- * instead of actual (numeric) length.
  */
 class Mc60Modem : public AbstractModem {
 public:
@@ -32,6 +28,9 @@ public:
         static constexpr size_t QIOPEN_BUF_LEN = 64;           /// Temporary buffer len.
         static constexpr size_t QUERY_ACK_COUNT_LIMIT = 8;     /// Ile razy (na s) sprawdzamy czy dostaliśmy ACK podczas wysyłania.
         static constexpr size_t BUFFERED_SINK_SIZE = 2048;     /// Pierwszy cache danych z modemu do µC.
+        // static constexpr size_t MAX_MODEM_RECEIVE_BATCH_SIZE = 1500; /// Page 173 "MC60 AT commands manual"
+// TODO get rid of this macro / hack
+#define MAX_MODEM_RECEIVE_BATCH_SIZE "1500"
 
         enum ConnectionState : uint8_t { NOT_CONNECTED, TCP_CONNECTED };
 
@@ -68,4 +67,6 @@ private:
         BufferedCharacterSink<BUFFERED_SINK_SIZE> bufferedSink; // Bufor na dane TCP/IP przychodzące z serwera. MC60 może zwrócić na raz 1500B.
         string address;                                         // Cache adresu, żeby reconnect.
         uint16_t port = 0;                                      // Cache portu, żeby reconnect.
+        UintVector totalData;
+        size_t totalReceivedBytes = 0;
 };
