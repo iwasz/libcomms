@@ -108,11 +108,11 @@ Mc60Modem::Mc60Modem (Usart &u, Gpio &pwrKey, Gpio &status, Callback *c)
         /*---------------------------------------------------------------------------*/
         /* clang-format off */
 
-        static QirdiParseCondition <size_t, BinaryEvent> totalReceiveQirdiAction (&totalReceivedBytes);
+        static QirdiParseCondition <size_t, BinaryEvent> totalReceiveQirdiAction (&totalBytesToReceive);
         m->transition (GPRS_RESET)->when (&softResetDelay);
         m->transition (SHUT_DOWN_STAGE_START)->when (eq<BinaryEvent> ("_OFF"));
 
-        auto lbd = [this] (BinaryEvent const &/*ev*/) { totalData.reserve(totalReceivedBytes); return true; };
+        auto lbd = [this] (BinaryEvent const &/*ev*/) { /*totalData.reserve(totalReceivedBytes);*/ return true; };
         static decltype (machine)::RuleType rule {&totalReceiveQirdiAction, 0, new FuncAction<BinaryEvent, decltype (lbd)> (lbd)};
         m->addGlobalRule (&rule);
 
@@ -287,9 +287,10 @@ Mc60Modem::Mc60Modem (Usart &u, Gpio &pwrKey, Gpio &status, Callback *c)
                 return true;
         }))
                 ->transition (NETWORK_GPS_USART_ECHO_OFF)->when (anded (&ok, ored<BinaryEvent> (eq<BinaryEvent> ("CONNECT OK"), eq<BinaryEvent> ("ALREADY CONNECT"))))->then (and_action (delayMs<BinaryEvent> (1000), func<BinaryEvent> ([this] (BinaryEvent const &) {
-                    if (callback) {
-                        callback->onConnected (0);
-                     }
+                    //if (callback) {
+                    //    callback->onConnected (0);
+                    // }
+                    connected = true;
                     return true;
                 })))
                 ->transition (CLOSE_AND_RECONNECT)->when (ored<BinaryEvent> (eq<BinaryEvent> ("CONNECT FAIL"), &error))->then(delayMs<BinaryEvent> (1000));
@@ -308,8 +309,8 @@ Mc60Modem::Mc60Modem (Usart &u, Gpio &pwrKey, Gpio &status, Callback *c)
         static TimePassedCondition<BinaryEvent> recvDelay (100, &gsmTimeCounter);
 
         m->state (NETWORK_CHECK_RECEIVE)->
-                transition (NETWORK_RECEIVE_NOTIFY)->whenf ([this] (BinaryEvent const &/*ev*/) { return totalData.size ()>0 && totalData.size () >= totalReceivedBytes; })->
-                transition (NETWORK_BEGIN_RECEIVE)->whenf ([this] (BinaryEvent const &/*ev*/) { return totalReceivedBytes > 0; })->
+                // transition (NETWORK_RECEIVE_NOTIFY)->whenf ([this] (BinaryEvent const &/*ev*/) { return totalData.size ()>0 && totalData.size () >= totalReceivedBytes; })->
+                transition (NETWORK_BEGIN_RECEIVE)->whenf ([this] (BinaryEvent const &/*ev*/) { return totalBytesToReceive > 0; })->
                 transition (NETWORK_BEGIN_SEND)->when (&alwaysTrue);
 
         m->state (NETWORK_BEGIN_RECEIVE)->entry (at ("AT+QIRD=0,1,0," MAX_MODEM_RECEIVE_BATCH_SIZE "\r\n"))
@@ -323,18 +324,8 @@ Mc60Modem::Mc60Modem (Usart &u, Gpio &pwrKey, Gpio &status, Callback *c)
         m->state (NETWORK_RECEIVE)->exit (&delay)
                 //->transition (NETWORK_CHECK_RECEIVE)->when (notEmpty<BinaryEvent> (InputRetention::RETAIN_INPUT))->thenf ([this] (BinaryEvent const &input) {
                 ->transition (NETWORK_CHECK_RECEIVE)->when (anded (len <BinaryEvent> (&bytesReceived, InputRetention::RETAIN_INPUT), &ok))->thenf ([this] (BinaryEvent const &input) {
-                    std::copy (input.cbegin (), input.cend (), std::back_inserter (totalData));
-                    return true;
-                });
-
-        m->state (NETWORK_RECEIVE_NOTIFY)->exit (&delay)
-                ->transition (NETWORK_BEGIN_SEND)->when (&alwaysTrue)->thenf ([this] (BinaryEvent const &/*input*/) {
-                    if (callback != nullptr) {
-                         callback->onData (totalData);
-                    }
-
-                    totalData.clear();
-                    totalReceivedBytes = 0;
+                    std::copy (input.cbegin (), input.cend (), std::back_inserter (receivedDataBuffer));
+                    totalBytesToReceive -= bytesReceived;
                     return true;
                 });
 
@@ -496,7 +487,7 @@ void Mc60Modem::disconnect (int /*connectionId*/)
 
 /*****************************************************************************/
 
-int Mc60Modem::send (const gsl::span<uint8_t> &data)
+int Mc60Modem::send (gsl::span<uint8_t> data)
 {
         if (dataToSendBuffer.size () + data.size () > dataToSendBuffer.max_size () /*|| !isTcpConnected ()*/) {
                 return 0;
@@ -505,3 +496,48 @@ int Mc60Modem::send (const gsl::span<uint8_t> &data)
         std::copy (data.cbegin (), data.cend (), std::back_inserter (dataToSendBuffer));
         return data.size ();
 }
+
+/*****************************************************************************/
+
+size_t Mc60Modem::read (gsl::span<uint8_t> outBuf)
+{
+        auto outBufSize = size_t (outBuf.size ());
+
+        if (outBufSize > receivedDataBuffer.size ()) {
+                return 0;
+        }
+
+        std::copy_n (receivedDataBuffer.cbegin (), outBufSize, outBuf.begin ());
+        auto finish = receivedDataBuffer.cbegin ();
+        std::advance (finish, outBufSize);
+        receivedDataBuffer.erase (receivedDataBuffer.cbegin (), finish);
+        return outBufSize;
+}
+
+/*****************************************************************************/
+
+//size_t Mc60Modem::peek (gsl::span<uint8_t> outBuf)
+//{
+//        auto outBufSize = size_t (outBuf.size ());
+
+//        if (outBufSize > receivedDataBuffer.size ()) {
+//                return 0;
+//        }
+
+//        std::copy_n (receivedDataBuffer.cbegin (), outBufSize, outBuf.begin ());
+//        return outBufSize;
+//}
+
+/*****************************************************************************/
+
+//size_t Mc60Modem::declare (size_t bytes)
+//{
+//        if (bytes > receivedDataBuffer.size ()) {
+//                return 0;
+//        }
+
+//        auto finish = receivedDataBuffer.cbegin ();
+//        std::advance (finish, bytes);
+//        receivedDataBuffer.erase (receivedDataBuffer.cbegin (), finish);
+//        return bytes;
+//}
