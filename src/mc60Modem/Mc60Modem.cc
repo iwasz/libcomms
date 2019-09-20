@@ -516,7 +516,7 @@ size_t Mc60Modem::read (gsl::span<uint8_t> outBuf)
 
 /*****************************************************************************/
 
-//size_t Mc60Modem::peek (gsl::span<uint8_t> outBuf)
+// size_t Mc60Modem::peek (gsl::span<uint8_t> outBuf)
 //{
 //        auto outBufSize = size_t (outBuf.size ());
 
@@ -530,7 +530,7 @@ size_t Mc60Modem::read (gsl::span<uint8_t> outBuf)
 
 /*****************************************************************************/
 
-//size_t Mc60Modem::declare (size_t bytes)
+// size_t Mc60Modem::declare (size_t bytes)
 //{
 //        if (bytes > receivedDataBuffer.size ()) {
 //                return 0;
