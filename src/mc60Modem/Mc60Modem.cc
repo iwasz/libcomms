@@ -108,12 +108,12 @@ Mc60Modem::Mc60Modem (Usart &u, Gpio &pwrKey, Gpio &status, Callback *c)
         /*---------------------------------------------------------------------------*/
         /* clang-format off */
 
-        static QirdiParseCondition <size_t, BinaryEvent> totalReceiveQirdiAction (&totalBytesToReceive);
         m->transition (GPRS_RESET)->when (&softResetDelay);
         m->transition (SHUT_DOWN_STAGE_START)->when (eq<BinaryEvent> ("_OFF"));
 
-        auto lbd = [this] (BinaryEvent const &/*ev*/) { /*totalData.reserve(totalReceivedBytes);*/ return true; };
-        static decltype (machine)::RuleType rule {&totalReceiveQirdiAction, 0, new FuncAction<BinaryEvent, decltype (lbd)> (lbd)};
+        // static QirdiParseCondition <size_t, BinaryEvent> totalReceiveQirdiAction (&totalBytesToReceive);
+        auto lbd = [this] (BinaryEvent const &/*ev*/) { newDataToReceive = true; /*totalData.reserve(totalReceivedBytes);*/ return true; };
+        static decltype (machine)::RuleType rule {beginsWith<BinaryEvent> ("+QIRDI"), 0, new FuncAction<BinaryEvent, decltype (lbd)> (lbd)};
         m->addGlobalRule (&rule);
 
         m->state (RESET_STAGE_DECIDE, StateFlags::INITIAL)->entry (/*and_action (&gpsReset,*/ and_action (&deinitgsmUsart, &delay))
@@ -257,8 +257,8 @@ Mc60Modem::Mc60Modem (Usart &u, Gpio &pwrKey, Gpio &status, Callback *c)
         m->state (USE_DNS)->entry (at ("AT+QIDNSIP=1\r\n"))
                 ->transition (SET_RECEIVE_MODE)->when (anded<BinaryEvent> (beginsWith<BinaryEvent> ("AT+QIDNSIP="), &ok))->then (&delay);
 
-        m->state (SET_RECEIVE_MODE)->entry (at ("AT+QINDI=2\r\n"))
-                ->transition (CONTROL_WAIT_FOR_CONNECT)->when (anded<BinaryEvent> (eq<BinaryEvent> ("AT+QINDI=2"), &ok))->then (&delay);
+        m->state (SET_RECEIVE_MODE)->entry (at ("AT+QINDI=1\r\n"))
+                ->transition (CONTROL_WAIT_FOR_CONNECT)->when (anded<BinaryEvent> (eq<BinaryEvent> ("AT+QINDI=1"), &ok))->then (&delay);
 
         m->state (CONTROL_WAIT_FOR_CONNECT)
                 // ->transition (CHECK_CONNECTION)->when (eq<BinaryEvent> ("_CONN", StripInput::DONT_STRIP, InputRetention::RETAIN_INPUT))->defer (0, true);
@@ -310,7 +310,7 @@ Mc60Modem::Mc60Modem (Usart &u, Gpio &pwrKey, Gpio &status, Callback *c)
 
         m->state (NETWORK_CHECK_RECEIVE)->
                 // transition (NETWORK_RECEIVE_NOTIFY)->whenf ([this] (BinaryEvent const &/*ev*/) { return totalData.size ()>0 && totalData.size () >= totalReceivedBytes; })->
-                transition (NETWORK_BEGIN_RECEIVE)->whenf ([this] (BinaryEvent const &/*ev*/) { return totalBytesToReceive > 0; })->
+                transition (NETWORK_BEGIN_RECEIVE)->whenf ([this] (BinaryEvent const &/*ev*/) { return newDataToReceive; })->
                 transition (NETWORK_BEGIN_SEND)->when (&alwaysTrue);
 
         m->state (NETWORK_BEGIN_RECEIVE)->entry (at ("AT+QIRD=0,1,0," MAX_MODEM_RECEIVE_BATCH_SIZE "\r\n"))
@@ -318,14 +318,16 @@ Mc60Modem::Mc60Modem (Usart &u, Gpio &pwrKey, Gpio &status, Callback *c)
                     modemResponseSink.receiveBytes (size_t (bytesReceived));
                     return true;
                 })
-                ->transition (NETWORK_BEGIN_SEND)->when (anded (eq <BinaryEvent> ("AT+QIRD=0,1,0," MAX_MODEM_RECEIVE_BATCH_SIZE), &ok))
+                ->transition (NETWORK_BEGIN_SEND)->
+                        when (anded (eq <BinaryEvent> ("AT+QIRD=0,1,0," MAX_MODEM_RECEIVE_BATCH_SIZE), &ok))->
+                        thenf ([this](auto) {newDataToReceive = false; return true; })
                 ->transition (CLOSE_AND_RECONNECT)->when (&error);
 
         m->state (NETWORK_RECEIVE)->exit (&delay)
                 //->transition (NETWORK_CHECK_RECEIVE)->when (notEmpty<BinaryEvent> (InputRetention::RETAIN_INPUT))->thenf ([this] (BinaryEvent const &input) {
                 ->transition (NETWORK_CHECK_RECEIVE)->when (anded (len <BinaryEvent> (&bytesReceived, InputRetention::RETAIN_INPUT), &ok))->thenf ([this] (BinaryEvent const &input) {
                     std::copy (input.cbegin (), input.cend (), std::back_inserter (receivedDataBuffer));
-                    totalBytesToReceive -= bytesReceived;
+                    // totalBytesToReceive -= bytesReceived;
                     return true;
                 });
 

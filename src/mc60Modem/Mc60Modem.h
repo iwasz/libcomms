@@ -89,6 +89,7 @@ private:
         string address;                                         // Cache adresu, żeby reconnect.
         uint16_t port = 0;                                      // Cache portu, żeby reconnect.
         DataBuffer receivedDataBuffer;
-        size_t totalBytesToReceive = 0;
+        //size_t totalBytesToReceive = 0;
+        bool newDataToReceive = false;
         bool connected = false;
 };
