@@ -74,7 +74,10 @@ enum MachineState : size_t {
 /*****************************************************************************/
 
 Mc60Modem::Mc60Modem (Usart &u, Gpio &pwrKey, Gpio &status, Callback *c)
-    : AbstractModem (u, pwrKey, status, c), modemResponseSink (machine.getEventQueue ()), bufferedSink (modemResponseSink)
+    : AbstractModem (u, pwrKey, status, c),
+      //machine (0, false, StateMachine<BinaryEvent>::Log::NO),
+      modemResponseSink (machine.getEventQueue ()),
+      bufferedSink (modemResponseSink)
 {
         modemUsart = &u;
         u.setSink (&bufferedSink);
@@ -287,10 +290,10 @@ Mc60Modem::Mc60Modem (Usart &u, Gpio &pwrKey, Gpio &status, Callback *c)
                 return true;
         }))
                 ->transition (NETWORK_GPS_USART_ECHO_OFF)->when (anded (&ok, ored<BinaryEvent> (eq<BinaryEvent> ("CONNECT OK"), eq<BinaryEvent> ("ALREADY CONNECT"))))->then (and_action (delayMs<BinaryEvent> (1000), func<BinaryEvent> ([this] (BinaryEvent const &) {
-                    //if (callback) {
-                    //    callback->onConnected (0);
-                    // }
-                    connected = true;
+                    if (callback != nullptr) {
+                        callback->onConnected ();
+                     }
+                    //connected = true;
                     return true;
                 })))
                 ->transition (CLOSE_AND_RECONNECT)->when (ored<BinaryEvent> (eq<BinaryEvent> ("CONNECT FAIL"), &error))->then(delayMs<BinaryEvent> (1000));
@@ -326,8 +329,14 @@ Mc60Modem::Mc60Modem (Usart &u, Gpio &pwrKey, Gpio &status, Callback *c)
         m->state (NETWORK_RECEIVE)->exit (&delay)
                 //->transition (NETWORK_CHECK_RECEIVE)->when (notEmpty<BinaryEvent> (InputRetention::RETAIN_INPUT))->thenf ([this] (BinaryEvent const &input) {
                 ->transition (NETWORK_CHECK_RECEIVE)->when (anded (len <BinaryEvent> (&bytesReceived, InputRetention::RETAIN_INPUT), &ok))->thenf ([this] (BinaryEvent const &input) {
-                    std::copy (input.cbegin (), input.cend (), std::back_inserter (receivedDataBuffer));
+                    //std::copy (input.cbegin (), input.cend (), std::back_inserter (receivedDataBuffer));
                     // totalBytesToReceive -= bytesReceived;
+
+                    if (callback != nullptr) {
+                        callback->onData (input);
+                    }
+
+
                     return true;
                 });
 
@@ -441,7 +450,7 @@ void Mc60Modem::power (bool on)
                                 return;
                         }
 
-                        getEventQueue ().push_back (BinaryEvent{ '_', 'O', 'F', 'F' });
+                        getEventQueue ().push_back (BinaryEvent{'_', 'O', 'F', 'F'});
 
                         //                        if (!getEventQueue ().push_back ()) {
                         //                                return;
@@ -473,7 +482,7 @@ bool Mc60Modem::connect (const char *address, uint16_t port)
         //        ev.argInt2 = 0;
         //        ev.argInt1 = port;
         //        ev.argStr = address;
-        this->address = string{ address };
+        this->address = string{address};
         this->port = port;
         return true;
 }
@@ -501,20 +510,20 @@ int Mc60Modem::send (gsl::span<uint8_t> data)
 
 /*****************************************************************************/
 
-size_t Mc60Modem::read (gsl::span<uint8_t> outBuf)
-{
-        auto outBufSize = size_t (outBuf.size ());
+// size_t Mc60Modem::read (gsl::span<uint8_t> outBuf)
+//{
+//        auto outBufSize = size_t (outBuf.size ());
 
-        if (outBufSize > receivedDataBuffer.size ()) {
-                return 0;
-        }
+//        if (outBufSize > receivedDataBuffer.size ()) {
+//                return 0;
+//        }
 
-        std::copy_n (receivedDataBuffer.cbegin (), outBufSize, outBuf.begin ());
-        auto finish = receivedDataBuffer.cbegin ();
-        std::advance (finish, outBufSize);
-        receivedDataBuffer.erase (receivedDataBuffer.cbegin (), finish);
-        return outBufSize;
-}
+//        std::copy_n (receivedDataBuffer.cbegin (), outBufSize, outBuf.begin ());
+//        auto finish = receivedDataBuffer.cbegin ();
+//        std::advance (finish, outBufSize);
+//        receivedDataBuffer.erase (receivedDataBuffer.cbegin (), finish);
+//        return outBufSize;
+//}
 
 /*****************************************************************************/
 

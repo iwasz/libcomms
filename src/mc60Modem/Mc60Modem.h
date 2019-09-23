@@ -16,8 +16,6 @@
 #include "Usart.h"
 #include "character/BufferedCharacterSink.h"
 #include "character/LineSink.h"
-#include <deque>
-#include <gsl/gsl>
 
 /**
  * Quectel Mc60 implementation.
@@ -44,7 +42,7 @@ public:
         /*-ICommunicationInterface---------------------------------------------------*/
 
         bool connect (const char *address, uint16_t port) override;
-        bool isConnected () const override { return connected; }
+//        bool isConnected () const override { return connected; }
 
         void disconnect (int connectionId) override;
         int send (gsl::span<uint8_t> data) override;
@@ -56,15 +54,14 @@ public:
          * @param outBuf
          * @return
          */
-        size_t read (gsl::span<uint8_t> outBuf) override;
-        bool hasData () const override { return !receivedDataBuffer.empty (); }
+//        size_t read (gsl::span<uint8_t> outBuf) override;
+//        bool hasData () const override { return !receivedDataBuffer.empty (); }
 
         //        size_t peek (gsl::span<uint8_t> outBuf) override;
         //        size_t declare (size_t bytes) override;
 
-        using DataBuffer = std::deque<uint8_t>;
-        DataBuffer &getDataBuffer () override { return receivedDataBuffer; }
-        DataBuffer const &getDataBuffer () const override { return receivedDataBuffer; }
+//        DataBuffer &getDataBuffer () override { return receivedDataBuffer; }
+//        DataBuffer const &getDataBuffer () const override { return receivedDataBuffer; }
 
         /*-AbstractModem-------------------------------------------------------------*/
 
@@ -88,8 +85,8 @@ private:
         BufferedCharacterSink<BUFFERED_SINK_SIZE> bufferedSink; // Bufor na dane TCP/IP przychodzące z serwera. MC60 może zwrócić na raz 1500B.
         string address;                                         // Cache adresu, żeby reconnect.
         uint16_t port = 0;                                      // Cache portu, żeby reconnect.
-        DataBuffer receivedDataBuffer;
-        //size_t totalBytesToReceive = 0;
+//        DataBuffer receivedDataBuffer;
+        // size_t totalBytesToReceive = 0;
         bool newDataToReceive = false;
-        bool connected = false;
+//        bool connected = false;
 };
