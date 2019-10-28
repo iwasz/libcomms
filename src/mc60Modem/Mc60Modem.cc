@@ -251,11 +251,12 @@ Mc60Modem::Mc60Modem (Usart &u, Gpio &pwrKey, Gpio &status, Callback *c)
                   ->transition (SET_MODEM_MODE)->when (anded<BinaryEvent> (beginsWith<BinaryEvent> ("AT+QIMUX="), &ok))->then (&delay);
 
         m->state (SET_MODEM_MODE)->entry (at ("AT+QIMODE=0\r\n"))
-                 ->transition (/*DNS_CONFIG*/SET_RECEIVE_MODE)->when (anded<BinaryEvent> (eq<BinaryEvent> ("AT+QIMODE=0"), &ok))->then (&delay);
+                 ->transition (USE_DNS/*DNS_CONFIG*/)->when (anded<BinaryEvent> (eq<BinaryEvent> ("AT+QIMODE=0"), &ok))->then (&delay);
 
-        m->state (DNS_CONFIG)->entry (at ("AT+QIDNSCFG=1,\"8.8.8.8\",\"8.8.4.4\"\r\n"))
-                ->transition (INIT)->when (&error)->then (&longDelay)
-                ->transition (USE_DNS)->when (anded<BinaryEvent> (beginsWith<BinaryEvent> ("AT+QIDNSCFG="), &ok))->then (&delay);
+// DNS jest pobierany automatycznie od providera.
+//        m->state (DNS_CONFIG)->entry (at ("AT+QIDNSCFG=1,\"8.8.8.8\",\"8.8.4.4\"\r\n"))
+//                ->transition (INIT)->when (&error)->then (&longDelay)
+//                ->transition (USE_DNS)->when (anded<BinaryEvent> (beginsWith<BinaryEvent> ("AT+QIDNSCFG="), &ok))->then (&delay);
 
         m->state (USE_DNS)->entry (at ("AT+QIDNSIP=1\r\n"))
                 ->transition (SET_RECEIVE_MODE)->when (anded<BinaryEvent> (beginsWith<BinaryEvent> ("AT+QIDNSIP="), &ok))->then (&delay);
