@@ -15,6 +15,7 @@
 #include "modem/GsmCommandAction.h"
 #include "modem/PwrKeyAction.h"
 #include "modem/StatusPinCondition.h"
+#include "SequenceCondition.h"
 
 // TODO !!!! wywalić!
 Usart *modemUsart;
@@ -68,7 +69,9 @@ enum MachineState : size_t {
         AT_QBTPWR,
         AT_QBTVISB,
         AT_QBTGATSREG,
-        AT_QBTGATSL
+        AT_QBTGATSL,
+        CFUN,
+        QSCLK
 };
 
 /*****************************************************************************/
@@ -145,7 +148,8 @@ Mc60Modem::Mc60Modem (Usart &u, Gpio &pwrKey, Gpio &status, Callback *c)
                 ->transition (INIT)->when (anded <BinaryEvent>(msPassed<BinaryEvent> (100, &gsmTimeCounter), &ok));
 
         m->state (INIT)->entry (at ("AT\r\n"))
-                ->transition (AT_QBTPWR)->when (anded<BinaryEvent> (eq<BinaryEvent> ("AT"), &ok))->then (&delay);
+                ->transition (AT_QBTPWR)->when (seq<BinaryEvent> (eq<BinaryEvent> ("AT"), &ok))->then (&delay)
+                ->transition (INIT)->when (msPassed<BinaryEvent> (1000, &gsmTimeCounter));
 
         // m->state (IPR)->entry (at ("AT+IPR=?\r\n"))
         //         ->transition (AT_QBTPWR)->when (anded<BinaryEvent> (beginsWith<BinaryEvent> ("AT+IPR"), &ok))->then (&delay);
@@ -165,7 +169,8 @@ Mc60Modem::Mc60Modem (Usart &u, Gpio &pwrKey, Gpio &status, Callback *c)
                 ->transition (PIN_STATUS_CHECK)->when (beginsWith<BinaryEvent> ("+CME ERROR:"));
 
         m->state (AT_QBTGATSL)->entry (at ("AT+QBTGATSL=\"ABC2\",1\r\n"))
-                ->transition (PIN_STATUS_CHECK)->when (anded<BinaryEvent> (beginsWith<BinaryEvent> ("AT+QBTGATSL"), &ok))->then (&delay);
+                ->transition (PIN_STATUS_CHECK)->when (anded<BinaryEvent> (beginsWith<BinaryEvent> ("AT+QBTGATSL"), &ok))->then (&delay)
+                ->transition (PIN_STATUS_CHECK)->when (seq<BinaryEvent> (beginsWith<BinaryEvent> ("AT+QBTGATSL"), eq <BinaryEvent> ("+CME ERROR: 100")))->then (&delay);
 
         /*---------------------------------------------------------------------------*/
 
@@ -305,6 +310,11 @@ Mc60Modem::Mc60Modem (Usart &u, Gpio &pwrKey, Gpio &status, Callback *c)
         /*--Data-reception-----------------------------------------------------------*/
         /*---------------------------------------------------------------------------*/
 
+        m->state (CFUN)->entry (at ("AT+CFUN=0\r\n"))
+                ->transition (QSCLK)->when (anded<BinaryEvent> (beginsWith<BinaryEvent> ("+PDP DEACT"), &ok));
+
+        m->state (QSCLK)->entry (at ("AT+QSCLK=1\r\n"));
+
         // Wyłącz ECHO podczas wysyłania danych.
         m->state (NETWORK_GPS_USART_ECHO_OFF)->entry (at ("AT+QISDE=0\r\n"))
                 ->transition (NETWORK_CHECK_RECEIVE)->when (/*anded (&configurationWasRead,*/ anded<BinaryEvent> (beginsWith<BinaryEvent> ("AT+QISDE=0"), &ok));
@@ -434,7 +444,9 @@ Mc60Modem::Mc60Modem (Usart &u, Gpio &pwrKey, Gpio &status, Callback *c)
                 ->transition (SHUT_DOWN)->when (&statusLow)->then (delayMs<BinaryEvent> (500));
 
         // Stąd tylko resetem maszyny stanów.
-        m->state (SHUT_DOWN, StateFlags::SUPPRESS_GLOBAL_TRANSITIONS);
+        m->state (SHUT_DOWN, StateFlags::SUPPRESS_GLOBAL_TRANSITIONS)->entry(func<BinaryEvent> ([] (auto) {
+                return true;
+        }));
         /* clang-format on */
 }
 
