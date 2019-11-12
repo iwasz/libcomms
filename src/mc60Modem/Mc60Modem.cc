@@ -11,11 +11,11 @@
 #include "QueryAckAction.h"
 #include "QueryRecvAction.h"
 #include "SendNetworkAction.h"
+#include "SequenceCondition.h"
 #include "UsartAction.h"
 #include "modem/GsmCommandAction.h"
 #include "modem/PwrKeyAction.h"
 #include "modem/StatusPinCondition.h"
-#include "SequenceCondition.h"
 
 // TODO !!!! wywalić!
 Usart *modemUsart;
@@ -70,15 +70,19 @@ enum MachineState : size_t {
         AT_QBTVISB,
         AT_QBTGATSREG,
         AT_QBTGATSL,
-        CFUN,
-        QSCLK
+        CFUN0,
+        SLEEP,
+        WAKE,
+        CFUN1,
+        SMS_TEXT_MODE,
+        SMS_CHECK
 };
 
 /*****************************************************************************/
 
 Mc60Modem::Mc60Modem (Usart &u, Gpio &pwrKey, Gpio &status, Callback *c)
     : AbstractModem (u, pwrKey, status, c),
-      //machine (0, false, StateMachine<BinaryEvent>::Log::NO),
+      // machine (0, false, StateMachine<BinaryEvent>::Log::NO),
       modemResponseSink (machine.getEventQueue ()),
       bufferedSink (modemResponseSink)
 {
@@ -121,6 +125,10 @@ Mc60Modem::Mc60Modem (Usart &u, Gpio &pwrKey, Gpio &status, Callback *c)
         auto lbd = [this] (BinaryEvent const &/*ev*/) { newDataToReceive = true; /*totalData.reserve(totalReceivedBytes);*/ return true; };
         static decltype (machine)::RuleType rule {beginsWith<BinaryEvent> ("+QIRDI"), 0, new FuncAction<BinaryEvent, decltype (lbd)> (lbd)};
         m->addGlobalRule (&rule);
+
+        auto sms = [this] (BinaryEvent const &/*ev*/) { newSmsToReceive = true;  return true; };
+        static decltype (machine)::RuleType ruleSms {beginsWith<BinaryEvent> ("+CMTI"), 0, new FuncAction<BinaryEvent, decltype (sms)> (sms)};
+        m->addGlobalRule (&ruleSms);
 
         m->state (RESET_STAGE_DECIDE, StateFlags::INITIAL)->entry (/*and_action (&gpsReset,*/ and_action (&deinitgsmUsart, &delay))
                 ->transition (PIN_STATUS_CHECK)->when (beginsWith<BinaryEvent> ("RDY")) // To oznacza, że wcześniej nie było zasilania, czyli nowy start.
@@ -310,11 +318,6 @@ Mc60Modem::Mc60Modem (Usart &u, Gpio &pwrKey, Gpio &status, Callback *c)
         /*--Data-reception-----------------------------------------------------------*/
         /*---------------------------------------------------------------------------*/
 
-        m->state (CFUN)->entry (at ("AT+CFUN=0\r\n"))
-                ->transition (QSCLK)->when (anded<BinaryEvent> (beginsWith<BinaryEvent> ("+PDP DEACT"), &ok));
-
-        m->state (QSCLK)->entry (at ("AT+QSCLK=1\r\n"));
-
         // Wyłącz ECHO podczas wysyłania danych.
         m->state (NETWORK_GPS_USART_ECHO_OFF)->entry (at ("AT+QISDE=0\r\n"))
                 ->transition (NETWORK_CHECK_RECEIVE)->when (/*anded (&configurationWasRead,*/ anded<BinaryEvent> (beginsWith<BinaryEvent> ("AT+QISDE=0"), &ok));
@@ -347,7 +350,6 @@ Mc60Modem::Mc60Modem (Usart &u, Gpio &pwrKey, Gpio &status, Callback *c)
                         callback->onData (input);
                     }
 
-
                     return true;
                 });
 
@@ -361,10 +363,29 @@ Mc60Modem::Mc60Modem (Usart &u, Gpio &pwrKey, Gpio &status, Callback *c)
          * to sprawdź ile max może przyjąć modem.
          */
         static TimePassedCondition<BinaryEvent> waitForSendDelay (10 * 1000, &gsmTimeCounter);
+
         m->state (NETWORK_BEGIN_SEND)->exit (&delay)
                 ->transition (CLOSE_AND_RECONNECT)->when (&disconnected)
                 ->transition (NETWORK_PREPARE_SEND)->whenf ([this] (BinaryEvent const &) { return dataToSendBuffer.size() > 0 ; })
-                ->transition (NETWORK_BEGIN_SEND)->when (&waitForSendDelay); // Tylko po to, żeby nam się maszyna nie zresetowała
+                ->transition (SLEEP/*CFUN0*//*NETWORK_BEGIN_SEND*/)->when (&waitForSendDelay);
+
+        // Enter sleep
+//        m->state (CFUN0)->entry (at ("AT+CFUN=0\r\n"))
+//                ->transition (QSCLK)->when (anded<BinaryEvent> (beginsWith<BinaryEvent> ("+PDP DEACT"), &ok));
+
+        m->state (SLEEP, StateFlags::SUPPRESS_GLOBAL_TRANSITIONS)->entry (at ("AT+QSCLK=2\r\n"))
+                ->transition (WAKE)->whenf ([this] (BinaryEvent const &) { return dataToSendBuffer.size() > 0 ; });
+                //->transition (NETWORK_BEGIN_SEND)->when (&waitForSendDelay);
+
+        // Exit sleep
+        static TimePassedCondition<BinaryEvent> waitWake (1000, &gsmTimeCounter);
+
+        m->state (WAKE)->entry (at ("AT\r\n"))
+                ->transition (NETWORK_PREPARE_SEND)->when (&ok)
+                ->transition (WAKE)->when (&waitWake);
+
+//        m->state (CFUN1)->entry (at ("AT+CFUN=1\r\n"))
+//                ->transition (NETWORK_PREPARE_SEND)->when (&ok);
 
         /*
          * Uwaga, wysłanie danych jest zaimplementowane w 2 stanach. W NETWORK_PREPARE_SEND idzie USARTem komenda AT+CIPSEND=<bbb>, a w
@@ -430,6 +451,17 @@ Mc60Modem::Mc60Modem (Usart &u, Gpio &pwrKey, Gpio &status, Callback *c)
         m->state (CANCEL_SEND)->entry (and_action<BinaryEvent> (delayMs<BinaryEvent> (1200), at ("+++\r\n")))
                 ->transition (CHECK_CONNECTION)->when (eq<BinaryEvent> ("SEND OK"))
                 ->transition (GPRS_RESET)->when (ored<BinaryEvent> (&error, eq<BinaryEvent> ("> -")))->then (delayMs<BinaryEvent> (500));
+
+        /*---------------------------------------------------------------------------*/
+        /*--Sms-receiving------------------------------------------------------------*/
+        /*---------------------------------------------------------------------------*/
+
+        m->state (SMS_TEXT_MODE)->entry (at ("AT+CMGF=1\r\n"))
+                ->transition (SMS_CHECK)->when (&ok);
+
+        m->state (SMS_CHECK)->entry (at ("AT+CMGL=\"SM\"\r\n"))
+                ->transition (CHECK_CONNECTION)->when (&alwaysTrue)->then (delayMs <BinaryEvent> (10000));
+
 
         /*---------------------------------------------------------------------------*/
         /*--WYŁĄCZENIE-PODCZAS-SLEEP-------------------------------------------------*/

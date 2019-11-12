@@ -88,5 +88,6 @@ private:
 //        DataBuffer receivedDataBuffer;
         // size_t totalBytesToReceive = 0;
         bool newDataToReceive = false;
+        bool newSmsToReceive = false;
 //        bool connected = false;
 };
