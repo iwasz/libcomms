@@ -7,6 +7,7 @@
  ****************************************************************************/
 
 #include "Mc60Modem.h"
+#include "NotCondition.h"
 #include "QirdiParseAction.h"
 #include "QueryAckAction.h"
 #include "QueryRecvAction.h"
@@ -70,10 +71,8 @@ enum MachineState : size_t {
         AT_QBTVISB,
         AT_QBTGATSREG,
         AT_QBTGATSL,
-        CFUN0,
         SLEEP,
         WAKE,
-        CFUN1,
         SMS_TEXT_MODE,
         SMS_CHECK
 };
@@ -363,15 +362,18 @@ Mc60Modem::Mc60Modem (Usart &u, Gpio &pwrKey, Gpio &status, Callback *c)
          * to sprawdź ile max może przyjąć modem.
          */
         static TimePassedCondition<BinaryEvent> waitForSendDelay (10 * 1000, &gsmTimeCounter);
+        auto sleepConfigured = [this] (auto /* ev */) { return sleepWhenNothingToSend; };
+        static auto sleepConfiguredCondition = FuncCondition<BinaryEvent, decltype (sleepConfigured)> (sleepConfigured);
+
+//        // TODO Nie działa mi negated i nie mam teraz na to czasu
+//        auto sleepNotConfigured = [this] (auto /* ev */) { return !sleepWhenNothingToSend; };
+//        static auto sleepNotConfiguredCondition = FuncCondition<BinaryEvent, decltype (sleepNotConfigured)> (sleepNotConfigured);
 
         m->state (NETWORK_BEGIN_SEND)->exit (&delay)
                 ->transition (CLOSE_AND_RECONNECT)->when (&disconnected)
                 ->transition (NETWORK_PREPARE_SEND)->whenf ([this] (BinaryEvent const &) { return dataToSendBuffer.size() > 0 ; })
-                ->transition (SLEEP/*CFUN0*//*NETWORK_BEGIN_SEND*/)->when (&waitForSendDelay);
-
-        // Enter sleep
-//        m->state (CFUN0)->entry (at ("AT+CFUN=0\r\n"))
-//                ->transition (QSCLK)->when (anded<BinaryEvent> (beginsWith<BinaryEvent> ("+PDP DEACT"), &ok));
+                ->transition (NETWORK_BEGIN_SEND)->when (anded (negated <BinaryEvent> (&sleepConfiguredCondition), &waitForSendDelay))
+                ->transition (SLEEP)->when (&sleepConfiguredCondition);
 
         m->state (SLEEP, StateFlags::SUPPRESS_GLOBAL_TRANSITIONS)->entry (at ("AT+QSCLK=2\r\n"))
                 ->transition (WAKE)->whenf ([this] (BinaryEvent const &) { return dataToSendBuffer.size() > 0 ; });
@@ -383,9 +385,6 @@ Mc60Modem::Mc60Modem (Usart &u, Gpio &pwrKey, Gpio &status, Callback *c)
         m->state (WAKE)->entry (at ("AT\r\n"))
                 ->transition (NETWORK_PREPARE_SEND)->when (&ok)
                 ->transition (WAKE)->when (&waitWake);
-
-//        m->state (CFUN1)->entry (at ("AT+CFUN=1\r\n"))
-//                ->transition (NETWORK_PREPARE_SEND)->when (&ok);
 
         /*
          * Uwaga, wysłanie danych jest zaimplementowane w 2 stanach. W NETWORK_PREPARE_SEND idzie USARTem komenda AT+CIPSEND=<bbb>, a w
