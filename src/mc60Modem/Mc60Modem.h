@@ -11,6 +11,7 @@
 #include "BinaryEvent.h"
 #include "Gpio.h"
 #include "ICommunicationInterface.h"
+#include "Sms.h"
 #include "StateMachine.h"
 #include "Types.h"
 #include "Usart.h"
@@ -77,11 +78,14 @@ public:
 
         bool sleepWhenNothingToSend = false;
 
+        SmsCollection &getSmsCollection () { return smsCollection; }
+
 protected:
         StateMachine<BinaryEvent>::EventQueue &getEventQueue () { return machine.getEventQueue (); }
 
 private:
         Buffer dataToSendBuffer; // Bufor na dane do wysłania przez TCP/IP za pośrednictwem modemu
+        SmsCollection smsCollection;
         StateMachine<BinaryEvent> machine;
         LineSink<StateMachine<BinaryEvent>::EventQueue, BinaryEvent> modemResponseSink;
         BufferedCharacterSink<BUFFERED_SINK_SIZE> bufferedSink; // Bufor na dane TCP/IP przychodzące z serwera. MC60 może zwrócić na raz 1500B.

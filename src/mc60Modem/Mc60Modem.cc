@@ -13,6 +13,7 @@
 #include "QueryRecvAction.h"
 #include "SendNetworkAction.h"
 #include "SequenceCondition.h"
+#include "SmsSendSingleAction.h"
 #include "UsartAction.h"
 #include "modem/GsmCommandAction.h"
 #include "modem/PwrKeyAction.h"
@@ -74,7 +75,12 @@ enum MachineState : size_t {
         SLEEP,
         WAKE,
         SMS_TEXT_MODE,
-        SMS_CHECK
+        SMS_CHECK,
+        SMS_BEGIN_SEND,
+        SMS_SEND_SINGLE_NUMBER,
+        SMS_SEND_SINGLE_BODY,
+        SMS_SEND_SINGLE_REMOVE,
+        SMS_CHARACTER_SET,
 };
 
 /*****************************************************************************/
@@ -248,7 +254,13 @@ Mc60Modem::Mc60Modem (Usart &u, Gpio &pwrKey, Gpio &status, Callback *c)
 
         m->state (GPRS_ATTACH_CHECK)->entry (at ("AT+CGATT?\r\n"))
                 ->transition (GPRS_ATTACH_CHECK)->when (anded<BinaryEvent> (eq<BinaryEvent> ("+CGATT: 0"), &ok))->then (&longDelay)
-                ->transition (SET_CONTEXT)->when (anded<BinaryEvent> (eq<BinaryEvent> ("+CGATT: 1"), &ok));
+                ->transition (SMS_TEXT_MODE)->when (anded<BinaryEvent> (eq<BinaryEvent> ("+CGATT: 1"), &ok));
+
+        m->state (SMS_TEXT_MODE)->entry (at ("AT+CMGF=1\r\n"))
+                ->transition (SMS_CHARACTER_SET)->when (&ok);
+
+        m->state (SMS_CHARACTER_SET)->entry (at ("AT+CSCS=\"GSM\"\r\n"))
+                ->transition (SET_CONTEXT)->when (&ok);
 
         m->state (SET_CONTEXT)->entry (at ("AT+QIFGCNT=0\r\n"))
                 ->transition(APN_USER_PASSWD_INPUT)->when (anded (eq<BinaryEvent> ("AT+QIFGCNT=0"), &ok));
@@ -443,7 +455,7 @@ Mc60Modem::Mc60Modem (Usart &u, Gpio &pwrKey, Gpio &status, Callback *c)
         static SendNetworkAction declareAction (dataToSendBuffer, SendNetworkAction::STAGE_DECLARE, &bytesToSendInSendStage);
         m->state (NETWORK_DECLARE_READ)->entry (&declareAction)
                 ->transition (CLOSE_AND_RECONNECT)->when (&disconnected)
-                ->transition (CHECK_CONNECTION)->when (&alwaysTrue);
+                ->transition (SMS_BEGIN_SEND)->when (&alwaysTrue);
 
         /*---------------------------------------------------------------------------*/
 
@@ -452,11 +464,29 @@ Mc60Modem::Mc60Modem (Usart &u, Gpio &pwrKey, Gpio &status, Callback *c)
                 ->transition (GPRS_RESET)->when (ored<BinaryEvent> (&error, eq<BinaryEvent> ("> -")))->then (delayMs<BinaryEvent> (500));
 
         /*---------------------------------------------------------------------------*/
+        /*--Sms-sending--------------------------------------------------------------*/
+        /*---------------------------------------------------------------------------*/
+
+        m->state (SMS_BEGIN_SEND)->exit (&delay)
+                ->transition (SMS_SEND_SINGLE_NUMBER)->whenf ([this] (BinaryEvent const &) { return smsCollection.size() > 0 ; })
+                ->transition (CHECK_CONNECTION)->when (&alwaysTrue);
+
+        static SmsSendSingleAction smsSendSingleStageNumber (smsCollection, SmsSendSingleAction::Stage::NUMBER);
+        m->state (SMS_SEND_SINGLE_NUMBER)->entry (&smsSendSingleStageNumber)
+                ->transition (SMS_SEND_SINGLE_BODY)->when (&alwaysTrue)->then (&delay);
+
+        static SmsSendSingleAction smsSendSingleStageBody (smsCollection, SmsSendSingleAction::Stage::BODY);
+        m->state (SMS_SEND_SINGLE_BODY)->entry (&smsSendSingleStageBody)
+                ->transition (SMS_SEND_SINGLE_REMOVE)->when (anded (beginsWith <BinaryEvent> ("AT+CMGS"), &ok));
+
+        static SmsSendSingleAction smsSendSingleStageRemove (smsCollection, SmsSendSingleAction::Stage::REMOVE);
+        m->state (SMS_SEND_SINGLE_REMOVE)->entry (&smsSendSingleStageRemove)
+                ->transition (SMS_BEGIN_SEND)->when (&alwaysTrue);
+
+        /*---------------------------------------------------------------------------*/
         /*--Sms-receiving------------------------------------------------------------*/
         /*---------------------------------------------------------------------------*/
 
-        m->state (SMS_TEXT_MODE)->entry (at ("AT+CMGF=1\r\n"))
-                ->transition (SMS_CHECK)->when (&ok);
 
         m->state (SMS_CHECK)->entry (at ("AT+CMGL=\"SM\"\r\n"))
                 ->transition (CHECK_CONNECTION)->when (&alwaysTrue)->then (delayMs <BinaryEvent> (10000));

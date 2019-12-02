@@ -7,9 +7,14 @@
  ****************************************************************************/
 
 #pragma once
-#include <cstdlib>
-#include <etl/vector.h>
+#include <etl/cstring.h>
+#include <etl/deque.h>
 
-static constexpr size_t OUTPUT_BUFFER_SIZE = 2048; /// Bufor na dane z µC do modemu.
-using Buffer = etl::vector<uint8_t, OUTPUT_BUFFER_SIZE>;
+struct Sms {
+        template <typename Nc, typename Bc> Sms (Nc const &n, Bc const &b) : number (std::move (n)), body (std::move (b)) {}
 
+        etl::string<16> number;
+        etl::string<160> body;
+};
+
+using SmsCollection = etl::deque<Sms, 4>;
