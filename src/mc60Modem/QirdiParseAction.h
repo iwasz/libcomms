@@ -9,6 +9,7 @@
 #pragma once
 #include "Condition.h"
 #include "Debug.h"
+#include "CommsError.h"
 #include "ErrorHandler.h"
 #include <algorithm>
 /**
@@ -55,7 +56,7 @@ template <typename IntT, typename EventT> bool QirdiParseCondition<IntT, EventT>
         size_t size = std::distance (j, event.cend ());
 
         if (size >= MAX_BUF) {
-                Error_Handler ();
+                Error_Handler (QUIRDI_PARSE_SIZE_GT);
         }
 
         std::copy (j, event.cend (), buf.begin ());

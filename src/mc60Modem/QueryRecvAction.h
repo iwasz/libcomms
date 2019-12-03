@@ -9,6 +9,7 @@
 #pragma once
 #include "Action.h"
 #include "BinaryEvent.h"
+#include "CommsError.h"
 #include "Condition.h"
 #include "Debug.h"
 #include <cstdio>
@@ -132,7 +133,7 @@ template <typename IntT, typename EventT> bool ParseRecvLengthCondition<IntT, Ev
                 return false;
         }
 
-        if (EventType pattern{ '+', 'Q', 'I', 'R', 'D', ':', ' ' };
+        if (EventType pattern{'+', 'Q', 'I', 'R', 'D', ':', ' '};
             std::search (event.cbegin (), event.cend (), pattern.cbegin (), pattern.cend ()) != event.cbegin ()) {
                 return false;
         }
@@ -154,7 +155,7 @@ template <typename IntT, typename EventT> bool ParseRecvLengthCondition<IntT, Ev
         size_t size = std::distance (i, event.cend ());
 
         if (size >= MAX_BUF) {
-                Error_Handler ();
+                Error_Handler (PARSE_RECV_SIZE_GT);
         }
 
         std::copy (i, event.cend (), buf.begin ());
@@ -168,4 +169,3 @@ template <typename IntT, typename EventT> bool ParseRecvLengthCondition<IntT, Ev
 
         return *bytesReceived > 0;
 }
-
