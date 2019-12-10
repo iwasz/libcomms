@@ -477,7 +477,8 @@ Mc60Modem::Mc60Modem (Usart &u, Gpio &pwrKey, Gpio &status, Callback *c)
 
         static SmsSendSingleAction smsSendSingleStageBody (smsCollection, SmsSendSingleAction::Stage::BODY);
         m->state (SMS_SEND_SINGLE_BODY)->entry (&smsSendSingleStageBody)
-                ->transition (SMS_SEND_SINGLE_REMOVE)->when (anded (beginsWith <BinaryEvent> ("AT+CMGS"), &ok));
+                ->transition (SMS_SEND_SINGLE_REMOVE)->when (anded (beginsWith <BinaryEvent> ("AT+CMGS"), &ok))
+                ->transition (SMS_SEND_SINGLE_REMOVE)->when (beginsWith <BinaryEvent> ("+CMS ERROR"));
 
         static SmsSendSingleAction smsSendSingleStageRemove (smsCollection, SmsSendSingleAction::Stage::REMOVE);
         m->state (SMS_SEND_SINGLE_REMOVE)->entry (&smsSendSingleStageRemove)
