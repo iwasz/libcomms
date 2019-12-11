@@ -160,9 +160,15 @@ Mc60Modem::Mc60Modem (Usart &u, Gpio &pwrKey, Gpio &status, Callback *c)
         m->state (GPS_USART_ECHO_ON)->entry (at ("ATE1\r\n"))
                 ->transition (INIT)->when (anded <BinaryEvent>(msPassed<BinaryEvent> (100, &gsmTimeCounter), &ok));
 
+        static int atQueryRetryNo = 0;
+        static IntegerAction<BinaryEvent> atResetRetry ((int *)&atQueryRetryNo, IntegerActionType::CLEAR);
+        static IntegerAction<BinaryEvent> atIncRetry ((int *)&atQueryRetryNo, IntegerActionType::INC);
+        static IntegerCondition<BinaryEvent> atRetryLimitReached (&atQueryRetryNo, IntegerCondition<BinaryEvent>::GT, 5);
+
         m->state (INIT)->entry (at ("AT\r\n"))
-                ->transition (AT_QBTPWR)->when (seq<BinaryEvent> (eq<BinaryEvent> ("AT"), &ok))->then (&delay)
-                ->transition (INIT)->when (msPassed<BinaryEvent> (1000, &gsmTimeCounter));
+                ->transition (AT_QBTPWR)->when (ored (&atRetryLimitReached, seq<BinaryEvent> (eq<BinaryEvent> ("AT"), &ok)))
+                        ->then (and_action (&delay, &atResetRetry))
+                ->transition (INIT)->when (msPassed<BinaryEvent> (1000, &gsmTimeCounter))->then (&atIncRetry);
 
         // m->state (IPR)->entry (at ("AT+IPR=?\r\n"))
         //         ->transition (AT_QBTPWR)->when (anded<BinaryEvent> (beginsWith<BinaryEvent> ("AT+IPR"), &ok))->then (&delay);
