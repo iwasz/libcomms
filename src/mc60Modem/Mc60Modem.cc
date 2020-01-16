@@ -81,6 +81,7 @@ enum MachineState : size_t {
         SMS_SEND_SINGLE_BODY,
         SMS_SEND_SINGLE_REMOVE,
         SMS_CHARACTER_SET,
+        CHECK_CONNECTION_PRE_SEND
 };
 
 /*****************************************************************************/
@@ -329,7 +330,9 @@ Mc60Modem::Mc60Modem (Usart &u, Gpio &pwrKey, Gpio &status, Callback *c)
                 })))
                 ->transition (CLOSE_AND_RECONNECT)->when (ored<BinaryEvent> (eq<BinaryEvent> ("CONNECT FAIL"), &error))->then(delayMs<BinaryEvent> (1000));
 
-        static BeginsWithCondition<BinaryEvent> disconnected ("+QIURC: \"closed\",");
+        static BeginsWithCondition<BinaryEvent> cl1 ("+QIURC: \"closed\",");
+        static StringCondition<BinaryEvent> cl2 ("CLOSED");
+        static OrCondition<BinaryEvent> disconnected (&cl1, &cl2);
 
         /*---------------------------------------------------------------------------*/
         /*--Data-reception-----------------------------------------------------------*/
@@ -389,20 +392,23 @@ Mc60Modem::Mc60Modem (Usart &u, Gpio &pwrKey, Gpio &status, Callback *c)
 
         m->state (NETWORK_BEGIN_SEND)->exit (&delay)
                 ->transition (CLOSE_AND_RECONNECT)->when (&disconnected)
-                ->transition (NETWORK_PREPARE_SEND)->whenf ([this] (BinaryEvent const &) { return dataToSendBuffer.size() > 0 ; })
+                ->transition (CHECK_CONNECTION_PRE_SEND)->whenf ([this] (BinaryEvent const &) { return dataToSendBuffer.size() > 0 ; })
                 ->transition (NETWORK_BEGIN_SEND)->when (anded (negated <BinaryEvent> (&sleepConfiguredCondition), &waitForSendDelay))
                 ->transition (SLEEP)->when (&sleepConfiguredCondition);
 
         m->state (SLEEP, StateFlags::SUPPRESS_GLOBAL_TRANSITIONS)->entry (at ("AT+QSCLK=2\r\n"))
                 ->transition (WAKE)->whenf ([this] (BinaryEvent const &) { return dataToSendBuffer.size() > 0 ; });
-                //->transition (NETWORK_BEGIN_SEND)->when (&waitForSendDelay);
 
         // Exit sleep
         static TimePassedCondition<BinaryEvent> waitWake (1000, &gsmTimeCounter);
 
         m->state (WAKE)->entry (at ("AT\r\n"))
-                ->transition (NETWORK_PREPARE_SEND)->when (&ok)
+                ->transition (CHECK_CONNECTION_PRE_SEND)->when (&ok)
                 ->transition (WAKE)->when (&waitWake);
+
+        m->state (CHECK_CONNECTION_PRE_SEND)->entry (at ("AT+QISTATE\r\n"))
+                ->transition (NETWORK_PREPARE_SEND)->when (anded (beginsWith<BinaryEvent> ("STATE: CONNECT OK"), &ok))
+                ->transition (CONNECT_TO_SERVER)->when (anded (beginsWith<BinaryEvent> ("STATE:"), &ok));
 
         /*
          * Uwaga, wysłanie danych jest zaimplementowane w 2 stanach. W NETWORK_PREPARE_SEND idzie USARTem komenda AT+CIPSEND=<bbb>, a w
