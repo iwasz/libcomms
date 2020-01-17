@@ -306,10 +306,9 @@ Mc60Modem::Mc60Modem (Usart &u, Gpio &pwrKey, Gpio &status, Callback *c)
         m->state (CLOSE_AND_RECONNECT)->entry (at ("AT+QICLOSE\r\n"))
                 ->transition (CONNECT_TO_SERVER)->when(anded<BinaryEvent> (beginsWith<BinaryEvent> ("AT+QICLOSE"), &ok))->then (delayMs<BinaryEvent> (1000));
 
-        // Kiedy nie ma połączenia, to ta komenda nic nie zwraca. ROTFL.
         m->state (CHECK_CONNECTION)->entry (at ("AT+QISTATE\r\n"))
-                ->transition (NETWORK_GPS_USART_ECHO_OFF)->when (anded (beginsWith<BinaryEvent> ("STATE: CONNECT OK"), &ok))
-                ->transition (CONNECT_TO_SERVER)->when (anded (beginsWith<BinaryEvent> ("STATE:"), &ok));
+                ->transition (NETWORK_GPS_USART_ECHO_OFF)->when (anded (anded (eq <BinaryEvent> ("AT+QISTATE"), &ok), beginsWith<BinaryEvent> ("STATE: CONNECT OK")))
+                ->transition (CONNECT_TO_SERVER)->when (anded (anded (eq <BinaryEvent> ("AT+QISTATE"), &ok), beginsWith<BinaryEvent> ("STATE:")));
 
         /*
          * Połącz się z serwerem (połączenie TCP).
@@ -407,8 +406,8 @@ Mc60Modem::Mc60Modem (Usart &u, Gpio &pwrKey, Gpio &status, Callback *c)
                 ->transition (WAKE)->when (&waitWake);
 
         m->state (CHECK_CONNECTION_PRE_SEND)->entry (at ("AT+QISTATE\r\n"))
-                ->transition (NETWORK_PREPARE_SEND)->when (anded (beginsWith<BinaryEvent> ("STATE: CONNECT OK"), &ok))
-                ->transition (CONNECT_TO_SERVER)->when (anded (beginsWith<BinaryEvent> ("STATE:"), &ok));
+                ->transition (NETWORK_PREPARE_SEND)->when (anded (anded (eq <BinaryEvent> ("AT+QISTATE"), &ok), beginsWith<BinaryEvent> ("STATE: CONNECT OK")))
+                ->transition (CONNECT_TO_SERVER)->when (anded (anded (eq <BinaryEvent> ("AT+QISTATE"), &ok), beginsWith<BinaryEvent> ("STATE:")));
 
         /*
          * Uwaga, wysłanie danych jest zaimplementowane w 2 stanach. W NETWORK_PREPARE_SEND idzie USARTem komenda AT+CIPSEND=<bbb>, a w
@@ -446,8 +445,8 @@ Mc60Modem::Mc60Modem (Usart &u, Gpio &pwrKey, Gpio &status, Callback *c)
                 ->transition (CLOSE_AND_RECONNECT)->when (ored<BinaryEvent> (ored<BinaryEvent> (&error, eq<BinaryEvent> ("CLOSED")), ored (eq<BinaryEvent> ("SEND FAIL"), eq<BinaryEvent> ("+PDP: DEACT"))))->then (&longDelay);
 
         m->state (NETWORK_ACK_CHECK)->entry (at ("AT+QISACK\r\n"))
-                ->transition (CLOSE_AND_RECONNECT)->when (&disconnected)
-                ->transition (NETWORK_ACK_CHECK_PARSE)->when (anded<BinaryEvent> (&ok, beginsWith<BinaryEvent> ("+QISACK: ", StripInput::STRIP, InputRetention::RETAIN_INPUT)));
+//                ->transition (CLOSE_AND_RECONNECT)->when (anded (&disconnected, anded<BinaryEvent> (&ok, beginsWith<BinaryEvent> ("+QISACK: ", StripInput::STRIP, InputRetention::RETAIN_INPUT))))
+                ->transition (NETWORK_ACK_CHECK_PARSE)->when (anded<BinaryEvent> (eq <BinaryEvent> ("AT+QISACK"), anded<BinaryEvent> (beginsWith<BinaryEvent> ("+QISACK: ", StripInput::STRIP, InputRetention::RETAIN_INPUT), &ok)));
 
         static int sent;
         static int acked;
