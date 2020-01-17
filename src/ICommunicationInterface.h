@@ -28,6 +28,7 @@ struct ICommunicationInterface {
                 virtual void onDisconnected () = 0;
                 virtual void onData (gsl::span<uint8_t const> data) = 0;
                 virtual void onError (Error error) = 0;
+                virtual void onSent (size_t len) = 0;
         };
 
         ICommunicationInterface (Callback *c = nullptr) : callback (c) {}

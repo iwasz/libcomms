@@ -33,8 +33,6 @@ public:
 // TODO get rid of this macro / hack
 #define MAX_MODEM_RECEIVE_BATCH_SIZE "1500"
 
-        enum ConnectionState : uint8_t { NOT_CONNECTED, TCP_CONNECTED };
-
         /*---------------------------------------------------------------------------*/
 
         Mc60Modem (Usart &u, Gpio &pwrKeyPin, Gpio &statusPin, Callback *c = nullptr);
@@ -44,9 +42,11 @@ public:
 
         bool connect (const char *address, uint16_t port) override;
         //        bool isConnected () const override { return connected; }
+        bool isConnected () const { return connected; }
 
         void disconnect (int connectionId) override;
         int send (gsl::span<uint8_t> data) override;
+
 
         /**
          * @brief Reads. It returns bytes received, but current implementation guarantees it return either outBuf.size () or 0.
@@ -82,6 +82,9 @@ public:
 
 protected:
         StateMachine<BinaryEvent>::EventQueue &getEventQueue () { return machine.getEventQueue (); }
+        void onConnected ();
+        void onDisconnected ();
+        void onSent (size_t len);
 
 private:
         Buffer dataToSendBuffer; // Bufor na dane do wysłania przez TCP/IP za pośrednictwem modemu
@@ -95,5 +98,5 @@ private:
         // size_t totalBytesToReceive = 0;
         bool newDataToReceive = false;
         bool newSmsToReceive = false;
-        //        bool connected = false;
+        bool connected = false;
 };

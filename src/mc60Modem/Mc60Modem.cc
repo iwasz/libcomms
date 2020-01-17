@@ -116,6 +116,16 @@ Mc60Modem::Mc60Modem (Usart &u, Gpio &pwrKey, Gpio &status, Callback *c)
         static UsartAction<BinaryEvent> deinitgsmUsart (u, UsartAction<BinaryEvent>::INTERRUPT_OFF);
         static TrueCondition<BinaryEvent> alwaysTrue;
 
+        static auto onConnectedAction = func<BinaryEvent> ([this] (auto) {
+                onConnected ();
+                return true;
+        });
+
+        static auto onDisconnectedAction = func<BinaryEvent> ([this] (auto) {
+                onDisconnected ();
+                return true;
+        });
+
         machine.setTimeCounter (&gsmTimeCounter);
         auto m = &machine;
 
@@ -136,7 +146,7 @@ Mc60Modem::Mc60Modem (Usart &u, Gpio &pwrKey, Gpio &status, Callback *c)
         static decltype (machine)::RuleType ruleSms {beginsWith<BinaryEvent> ("+CMTI"), 0, new FuncAction<BinaryEvent, decltype (sms)> (sms)};
         m->addGlobalRule (&ruleSms);
 
-        m->state (RESET_STAGE_DECIDE, StateFlags::INITIAL)->entry (/*and_action (&gpsReset,*/ and_action (&deinitgsmUsart, &delay))
+        m->state (RESET_STAGE_DECIDE, StateFlags::INITIAL)->entry (and_action (onDisconnectedAction, and_action (&deinitgsmUsart, &delay)))
                 ->transition (PIN_STATUS_CHECK)->when (beginsWith<BinaryEvent> ("RDY")) // To oznacza, że wcześniej nie było zasilania, czyli nowy start.
                 ->transition (RESET_STAGE_POWER_OFF)->when (&statusHigh)
                 ->transition (RESET_STAGE_POWER_ON)->when (&statusLow)
@@ -304,7 +314,8 @@ Mc60Modem::Mc60Modem (Usart &u, Gpio &pwrKey, Gpio &status, Callback *c)
         /*---------------------------------------------------------------------------*/
 
         m->state (CLOSE_AND_RECONNECT)->entry (at ("AT+QICLOSE\r\n"))
-                ->transition (CONNECT_TO_SERVER)->when(anded<BinaryEvent> (beginsWith<BinaryEvent> ("AT+QICLOSE"), &ok))->then (delayMs<BinaryEvent> (1000));
+                ->transition (CONNECT_TO_SERVER)->when(anded<BinaryEvent> (beginsWith<BinaryEvent> ("AT+QICLOSE"), &ok))
+                ->then (and_action (onDisconnectedAction, delayMs<BinaryEvent> (1000)));
 
         m->state (CHECK_CONNECTION)->entry (at ("AT+QISTATE\r\n"))
                 ->transition (NETWORK_GPS_USART_ECHO_OFF)->when (anded (anded (eq <BinaryEvent> ("AT+QISTATE"), &ok), beginsWith<BinaryEvent> ("STATE: CONNECT OK")))
@@ -320,13 +331,8 @@ Mc60Modem::Mc60Modem (Usart &u, Gpio &pwrKey, Gpio &status, Callback *c)
                 debug->print(qiopenCommand);
                 return true;
         }))
-                ->transition (NETWORK_GPS_USART_ECHO_OFF)->when (anded (&ok, ored<BinaryEvent> (eq<BinaryEvent> ("CONNECT OK"), eq<BinaryEvent> ("ALREADY CONNECT"))))->then (and_action (delayMs<BinaryEvent> (1000), func<BinaryEvent> ([this] (BinaryEvent const &) {
-                    if (callback != nullptr) {
-                        callback->onConnected ();
-                     }
-                    //connected = true;
-                    return true;
-                })))
+                ->transition (NETWORK_GPS_USART_ECHO_OFF)->when (anded (&ok, ored<BinaryEvent> (eq<BinaryEvent> ("CONNECT OK"), eq<BinaryEvent> ("ALREADY CONNECT"))))
+                    ->then (and_action (delayMs<BinaryEvent> (1000), onConnectedAction))
                 ->transition (CLOSE_AND_RECONNECT)->when (ored<BinaryEvent> (eq<BinaryEvent> ("CONNECT FAIL"), &error))->then(delayMs<BinaryEvent> (1000));
 
         static BeginsWithCondition<BinaryEvent> cl1 ("+QIURC: \"closed\",");
@@ -461,18 +467,24 @@ Mc60Modem::Mc60Modem (Usart &u, Gpio &pwrKey, Gpio &status, Callback *c)
                 ->transition (NETWORK_DECLARE_READ)->when (&allAcked)->then (&resetRetry)
                 ->transition (NETWORK_ACK_CHECK)->when (&alwaysTrue)->then (&incRetry);
 
+
+        static auto onSentAction = func<BinaryEvent> ([this] (auto) {
+                onSent (acked);
+                return true;
+        });
+
         // static SendNetworkAction declareAction (&outputBuffer, SendNetworkAction::STAGE_DECLARE, reinterpret_cast <uint32_t *> (&acked));
         // TODO nie ackuje mi!!!
         static SendNetworkAction declareAction (dataToSendBuffer, SendNetworkAction::STAGE_DECLARE, &bytesToSendInSendStage);
         m->state (NETWORK_DECLARE_READ)->entry (&declareAction)
                 ->transition (CLOSE_AND_RECONNECT)->when (&disconnected)
-                ->transition (SMS_BEGIN_SEND)->when (&alwaysTrue);
+                ->transition (SMS_BEGIN_SEND)->when (&alwaysTrue)->then (onSentAction);
 
         /*---------------------------------------------------------------------------*/
 
         m->state (CANCEL_SEND)->entry (and_action<BinaryEvent> (delayMs<BinaryEvent> (1200), at ("+++\r\n")))
                 ->transition (CHECK_CONNECTION)->when (eq<BinaryEvent> ("SEND OK"))
-                ->transition (GPRS_RESET)->when (ored<BinaryEvent> (&error, eq<BinaryEvent> ("> -")))->then (delayMs<BinaryEvent> (500));
+                ->transition (GPRS_RESET)->when (ored<BinaryEvent> (&error, eq<BinaryEvent> ("> -")))->then (and_action (onDisconnectedAction, delayMs<BinaryEvent> (500)));
 
         /*---------------------------------------------------------------------------*/
         /*--Sms-sending--------------------------------------------------------------*/
@@ -638,3 +650,40 @@ int Mc60Modem::send (gsl::span<uint8_t> data)
 //        receivedDataBuffer.erase (receivedDataBuffer.cbegin (), finish);
 //        return bytes;
 //}
+
+void Mc60Modem::onConnected ()
+{
+
+        if (connected) {
+                return;
+        }
+
+        connected = true;
+
+        if (callback != nullptr) {
+                callback->onConnected ();
+        }
+}
+
+/*****************************************************************************/
+
+void Mc60Modem::onDisconnected ()
+{
+        if (!connected) {
+                return;
+        }
+
+        connected = false;
+        dataToSendBuffer.clear ();
+
+        if (callback != nullptr) {
+                callback->onDisconnected ();
+        }
+}
+
+void Mc60Modem::onSent (size_t len)
+{
+        if (callback != nullptr) {
+                callback->onSent (len);
+        }
+}
