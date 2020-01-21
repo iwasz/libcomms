@@ -469,7 +469,7 @@ Mc60Modem::Mc60Modem (Usart &u, Gpio &pwrKey, Gpio &status, Callback *c)
 
 
         static auto onSentAction = func<BinaryEvent> ([this] (auto) {
-                onSent (acked);
+                onSent (bytesToSendInSendStage);
                 return true;
         });
 

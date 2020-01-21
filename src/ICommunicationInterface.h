@@ -35,9 +35,10 @@ struct ICommunicationInterface {
         virtual ~ICommunicationInterface () = default;
 
         virtual bool connect (const char *address, uint16_t port) = 0; /// TCP connection
-//        virtual bool isConnected () const = 0;                         /// Is TCP connection present.
+        virtual bool isConnected () const = 0;                         /// Is TCP connection present.
         virtual void disconnect (int connectionId) = 0;
         virtual int send (gsl::span<uint8_t> data) = 0;
+        virtual bool isSending () const = 0;
 
 //        virtual size_t read (gsl::span<uint8_t> outBuf) = 0;
 //        virtual bool hasData () const = 0;

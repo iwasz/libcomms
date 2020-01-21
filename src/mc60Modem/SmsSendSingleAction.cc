@@ -36,4 +36,6 @@ bool SmsSendSingleAction::run (const EventType &event)
                 smsVector.pop_front ();
                 return true;
         }
+
+        return true;
 }

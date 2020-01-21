@@ -41,28 +41,11 @@ public:
         /*-ICommunicationInterface---------------------------------------------------*/
 
         bool connect (const char *address, uint16_t port) override;
-        //        bool isConnected () const override { return connected; }
-        bool isConnected () const { return connected; }
+        bool isConnected () const override { return connected; }
 
         void disconnect (int connectionId) override;
         int send (gsl::span<uint8_t> data) override;
-
-
-        /**
-         * @brief Reads. It returns bytes received, but current implementation guarantees it return either outBuf.size () or 0.
-         * In normal circumstances i.e. in Linux, or Windows it should block if there is not enough data received. But here I
-         * don't have threads, so it will return 0 in such a case.
-         * @param outBuf
-         * @return
-         */
-        //        size_t read (gsl::span<uint8_t> outBuf) override;
-        //        bool hasData () const override { return !receivedDataBuffer.empty (); }
-
-        //        size_t peek (gsl::span<uint8_t> outBuf) override;
-        //        size_t declare (size_t bytes) override;
-
-        //        DataBuffer &getDataBuffer () override { return receivedDataBuffer; }
-        //        DataBuffer const &getDataBuffer () const override { return receivedDataBuffer; }
+        bool isSending () const override { return !dataToSendBuffer.empty (); }
 
         /*-AbstractModem-------------------------------------------------------------*/
 
