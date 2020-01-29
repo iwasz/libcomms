@@ -13,10 +13,10 @@
 #include "QueryRecvAction.h"
 #include "SendNetworkAction.h"
 #include "SequenceCondition.h"
-#include "SmsSendSingleAction.h"
 #include "UsartAction.h"
 #include "modem/GsmCommandAction.h"
 #include "modem/PwrKeyAction.h"
+#include "modem/SmsSendSingleAction.h"
 #include "modem/StatusPinCondition.h"
 
 // TODO !!!! wywalić!
