@@ -49,13 +49,21 @@ bool SendNetworkAction::run (const EventType &event)
                         return true;
                 }
 
-                modemUsart->transmit (dataToSendBuffer.data (), dataToSendBuffer.size ());
+                modemUsart->transmit (dataToSendBuffer.data (), *bytesToSendInSendStage);
         }
         /*
          * Zdjęcie wysłanej liczby bajtów z bufora.
          */
         else if (stage == STAGE_DECLARE) {
-                dataToSendBuffer.clear ();
+                if (int (dataToSendBuffer.size ()) - *bytesToSendInSendStage <= 0) {
+                        dataToSendBuffer.clear ();
+                }
+                else {
+                        auto i = dataToSendBuffer.begin ();
+                        std::advance (i, *bytesToSendInSendStage);
+                        std::copy (i, dataToSendBuffer.end (), dataToSendBuffer.begin ());
+                        dataToSendBuffer.resize (dataToSendBuffer.size () - *bytesToSendInSendStage);
+                }
         }
 
         return true;
