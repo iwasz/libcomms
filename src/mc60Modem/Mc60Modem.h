@@ -58,7 +58,7 @@ public:
                 machine.run ();
         }
 
-        bool sleepWhenNothingToSend = false;
+        bool sleepWhenNothingToSend = true;
 
         SmsCollection &getSmsCollection () { return smsCollection; }
 

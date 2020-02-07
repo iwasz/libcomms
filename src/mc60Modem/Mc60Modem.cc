@@ -149,8 +149,7 @@ Mc60Modem::Mc60Modem (Usart &u, Gpio &pwrKey, Gpio &status, Callback *c)
         m->state (RESET_STAGE_DECIDE, StateFlags::INITIAL)->entry (and_action (onDisconnectedAction, and_action (&deinitgsmUsart, &delay)))
                 ->transition (PIN_STATUS_CHECK)->when (beginsWith<BinaryEvent> ("RDY")) // To oznacza, że wcześniej nie było zasilania, czyli nowy start.
                 ->transition (RESET_STAGE_POWER_OFF)->when (&statusHigh)
-                ->transition (RESET_STAGE_POWER_ON)->when (&statusLow)
-                /*->transition (RESET_STAGE_DECIDE)->when (&hardResetDelay)*/;
+                ->transition (RESET_STAGE_POWER_ON)->when (&statusLow);
 
         m->state (RESET_STAGE_POWER_OFF,  StateFlags::SUPPRESS_GLOBAL_TRANSITIONS)->entry (gsmPwrCycleOff)
                 ->transition (RESET_STAGE_POWER_ON)->when (&statusLow)->then (delayMs<BinaryEvent> (500))
@@ -159,8 +158,7 @@ Mc60Modem::Mc60Modem (Usart &u, Gpio &pwrKey, Gpio &status, Callback *c)
         // M66_Hardware_Design strona 25. Pierwszą komendę po 4-5 sekundach od włączenia.
         m->state (RESET_STAGE_POWER_ON)->entry (gsmPwrCycleOn)
                 ->transition (PIN_STATUS_CHECK)->when (beginsWith<BinaryEvent> ("RDY"))
-                ->transition (INIT)->when (&statusHigh)->then (and_action (and_action<BinaryEvent> (delayMs<BinaryEvent> (12000), &initgsmUsart), delayMs<BinaryEvent> (1000)))
-                /*->transition (RESET_STAGE_DECIDE)->when (&hardResetDelay)*/;
+                ->transition (INIT)->when (&statusHigh)->then (and_action (and_action<BinaryEvent> (delayMs<BinaryEvent> (100), &initgsmUsart), delayMs<BinaryEvent> (100)));
 
         /*---------------------------------------------------------------------------*/
 
